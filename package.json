@@ -1,0 +1,55 @@
+{
+  "name": "htl-to-js",
+  "version": "0.1.0",
+  "description": "Webpack loader and CLI that transpiles AEM HTL (Sightly) templates into JavaScript template string functions.",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": "./dist/index.js",
+    "./loader": "./dist/loader.js"
+  },
+  "bin": {
+    "htl-gen": "./dist/cli.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "prepublishOnly": "npm run build",
+    "test": "jest",
+    "test:watch": "jest --watch",
+    "test:coverage": "jest --coverage"
+  },
+  "keywords": [
+    "aem",
+    "htl",
+    "sightly",
+    "webpack-loader",
+    "storybook"
+  ],
+  "license": "MIT",
+  "author": "ramirezcgn",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ramirezcgn/htl-to-js.git"
+  },
+  "bugs": {
+    "url": "https://github.com/ramirezcgn/htl-to-js/issues"
+  },
+  "homepage": "https://github.com/ramirezcgn/htl-to-js#readme",
+  "dependencies": {
+    "glob": "^10.0.0",
+    "parse5": "^7.2.1"
+  },
+  "devDependencies": {
+    "@types/jest": "^30.0.0",
+    "@types/node": "^20.0.0",
+    "jest": "^29.0.0",
+    "ts-jest": "^29.0.0",
+    "typescript": "^5.0.0"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

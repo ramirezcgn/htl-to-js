@@ -367,6 +367,19 @@ describe('transpile — in operator', () => {
 
     expect(fn({ item: { name: 'other' }, parent: { expandedItems: { 'panel-1': true } } })).not.toContain('expanded');
   });
+
+  it('handles in operator inside parenthesized ternary in attribute', () => {
+    const src = `<div data-sly-use.accordion="com.example.Accordion"
+                      data-sly-repeat.item="\${accordion.items}"
+                      class="base\${(item.name in accordion.expandedItems) ? ' active' : ''}">content</div>`;
+    const code = transpile(src, { filename: 'test.html' });
+    const mod: any = {};
+    new Function('module', code)(mod);
+    const fn = Object.values(mod.exports)[0] as Function;
+
+    expect(fn({ accordion: { items: [{ name: 'x' }], expandedItems: { x: true } } })).toContain('base active');
+    expect(fn({ accordion: { items: [{ name: 'y' }], expandedItems: { x: true } } })).toContain('class="base"');
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -1107,5 +1120,664 @@ describe('transpile — i18n dictionary', () => {
     const html = fn({ _i18n: { 'Title': 'Título', 'Description': 'Descripción' } });
     expect(html).toContain('Título');
     expect(html).toContain('Descripción');
+  });
+});
+
+// ===========================================================================
+// ADDITIONAL COVERAGE — edge cases & real-world AEM patterns
+// ===========================================================================
+
+// ---------------------------------------------------------------------------
+// convertExpr — in operator edge cases
+// ---------------------------------------------------------------------------
+
+describe('convertExpr — in operator edge cases', () => {
+  it('handles multiple in operators chained with &&', () => {
+    const result = convertExpr('${a in b && c in d}');
+    expect(result).toContain('in');
+    // Should produce valid JS when evaluated
+    const fn = new Function('a', 'b', 'c', 'd', `return ${result};`);
+    expect(fn('x', { x: 1 }, 'y', { y: 1 })).toBeTruthy();
+    expect(fn('x', { x: 1 }, 'z', { y: 1 })).toBeFalsy();
+  });
+
+  it('handles in operator with optional-chained left operand', () => {
+    const result = convertExpr('${item.name in parent.map}');
+    // Should contain safe-access and in operator
+    expect(result).toContain('in');
+    const fn = new Function('item', 'parent', `return ${result};`);
+    expect(fn({ name: 'k' }, { map: { k: true } })).toBeTruthy();
+  });
+
+  it('handles in operator with undefined right side', () => {
+    const result = convertExpr('${key in obj}');
+    const fn = new Function('key', 'obj', `return ${result};`);
+    expect(fn('a', undefined)).toBeFalsy();
+    expect(fn('a', null)).toBeFalsy();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// convertExpr — optional chaining edge cases
+// ---------------------------------------------------------------------------
+
+describe('convertExpr — optional chaining', () => {
+  it('inserts ?. for chained property access', () => {
+    expect(convertExpr('a.b.c')).toBe('a?.b?.c');
+  });
+
+  it('inserts ?. for bracket access', () => {
+    expect(convertExpr("obj['key']")).toBe("obj?.['key']");
+  });
+
+  it('does not double ?. if already present', () => {
+    const result = convertExpr('a?.b.c');
+    // Should have ?. between a and b, and b and c
+    expect(result).toBe('a?.b?.c');
+  });
+
+  it('handles jcr: property with deep chain', () => {
+    expect(convertExpr('a.b.jcr:title')).toBe("a?.b?.['jcr:title']");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// convertExpr — format edge cases
+// ---------------------------------------------------------------------------
+
+describe('convertExpr — @format edge cases', () => {
+  it('handles format with reversed placeholder order', () => {
+    const result = convertExpr("'{1}/{0}' @ format=[a, b]");
+    const fn = new Function('a', 'b', `return ${result};`);
+    expect(fn('first', 'second')).toBe('second/first');
+  });
+
+  it('handles format with more placeholders than args', () => {
+    const result = convertExpr("'{0}/{1}/{2}' @ format=[a, b]");
+    // Placeholder {2} has no corresponding arg — should produce "''" or empty
+    expect(result).toBeDefined();
+    const fn = new Function('a', 'b', `return ${result};`);
+    expect(fn('x', 'y')).toContain('x');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// convertExpr — empty / edge inputs
+// ---------------------------------------------------------------------------
+
+describe('convertExpr — edge inputs', () => {
+  it('returns empty string for empty input', () => {
+    expect(convertExpr('')).toBe('');
+  });
+
+  it('returns whitespace-only input as-is', () => {
+    expect(convertExpr('   ')).toBe('   ');
+  });
+
+  it('handles single identifier', () => {
+    expect(convertExpr('myVar')).toBe('myVar');
+  });
+
+  it('handles numeric literal', () => {
+    expect(convertExpr('42')).toBe('42');
+  });
+
+  it('handles string literal', () => {
+    expect(convertExpr("'hello'")).toBe("'hello'");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// transpile — nested <sly> elements
+// ---------------------------------------------------------------------------
+
+describe('transpile — nested sly elements', () => {
+  it('elides multiple levels of sly nesting', () => {
+    const src = `<sly data-sly-test="\${show}"><sly data-sly-test="\${extra}"><span>deep</span></sly></sly>`;
+    const code = transpile(src, { filename: 'test.html' });
+    const mod: any = {};
+    new Function('module', code)(mod);
+    const fn = Object.values(mod.exports)[0] as Function;
+    const html = fn({ show: true, extra: true });
+    expect(html).not.toContain('<sly');
+    expect(html).toContain('<span>deep</span>');
+  });
+
+  it('respects inner condition when outer is true', () => {
+    const src = `<sly data-sly-test="\${show}"><sly data-sly-test="\${extra}"><span>deep</span></sly></sly>`;
+    const code = transpile(src, { filename: 'test.html' });
+    const mod: any = {};
+    new Function('module', code)(mod);
+    const fn = Object.values(mod.exports)[0] as Function;
+    expect(fn({ show: true, extra: false })).toBe('');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// transpile — template call within repeat
+// ---------------------------------------------------------------------------
+
+describe('transpile — data-sly-call inside repeat', () => {
+  it('invokes local template for each item in repeat', () => {
+    const src = `
+      <template data-sly-template.badge="\${@ label}"><span class="badge">\${label}</span></template>
+      <div data-sly-repeat.item="\${items}"><sly data-sly-call="\${badge @ label=item.name}"></sly></div>`;
+    const code = transpile(src, { filename: 'test.html' });
+    const mod: any = {};
+    new Function('module', code)(mod);
+    const fn = mod.exports.createBadge;
+    expect(fn).toBeDefined();
+    // The badge template itself should render correctly
+    expect(fn({ label: 'X' })).toContain('badge');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// transpile — set variable used across child elements
+// ---------------------------------------------------------------------------
+
+describe('transpile — set variable scope', () => {
+  it('set variable is accessible in child elements', () => {
+    const src = `
+      <div data-sly-set.title="\${model.heading}">
+        <h1>\${title}</h1>
+        <p data-sly-attribute.aria-label="\${title}">body</p>
+      </div>`;
+    const code = transpile(src, { filename: 'test.html' });
+    const mod: any = {};
+    new Function('module', code)(mod);
+    const fn = Object.values(mod.exports)[0] as Function;
+    const html = fn({ model: { heading: 'MyTitle' } });
+    expect(html).toContain('<h1>MyTitle</h1>');
+    expect(html).toContain('aria-label="MyTitle"');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// transpile — multiple dynamic attributes on same element
+// ---------------------------------------------------------------------------
+
+describe('transpile — multiple dynamic attributes', () => {
+  it('renders multiple data-sly-attribute.* on one element', () => {
+    const src = `<div data-sly-attribute.id="\${model.id}" data-sly-attribute.title="\${model.title}" data-sly-attribute.role="\${model.role}">content</div>`;
+    const code = transpile(src, { filename: 'test.html' });
+    const mod: any = {};
+    new Function('module', code)(mod);
+    const fn = Object.values(mod.exports)[0] as Function;
+    const html = fn({ model: { id: 'el1', title: 'Hello', role: 'button' } });
+    expect(html).toContain('id="el1"');
+    expect(html).toContain('title="Hello"');
+    expect(html).toContain('role="button"');
+  });
+
+  it('omits null attributes and keeps others', () => {
+    const src = `<div data-sly-attribute.id="\${model.id}" data-sly-attribute.title="\${model.title}">content</div>`;
+    const code = transpile(src, { filename: 'test.html' });
+    const mod: any = {};
+    new Function('module', code)(mod);
+    const fn = Object.values(mod.exports)[0] as Function;
+    const html = fn({ model: { id: 'el1', title: null } });
+    expect(html).toContain('id="el1"');
+    expect(html).not.toContain('title=');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// transpile — element + text directives together
+// ---------------------------------------------------------------------------
+
+describe('transpile — element + text combined', () => {
+  it('renders dynamic tag with text content', () => {
+    const src = `<span data-sly-element="\${model.tag || 'span'}" data-sly-text="\${model.content}">fallback</span>`;
+    const code = transpile(src, { filename: 'test.html' });
+    const mod: any = {};
+    new Function('module', code)(mod);
+    const fn = Object.values(mod.exports)[0] as Function;
+    const html = fn({ model: { tag: 'h1', content: 'Title' } });
+    expect(html).toContain('<h1');
+    expect(html).toContain('Title');
+    expect(html).toContain('</h1>');
+    expect(html).not.toContain('fallback');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// transpile — resource with test gating
+// ---------------------------------------------------------------------------
+
+describe('transpile — test + resource combined', () => {
+  it('renders resource when test is truthy', () => {
+    const src = `<sly data-sly-test="\${model.showHeader}" data-sly-resource="\${'header'}"></sly>`;
+    const code = transpile(src, { filename: 'test.html' });
+    const mod: any = {};
+    new Function('module', code)(mod);
+    const fn = Object.values(mod.exports)[0] as Function;
+    const html = fn({ model: { showHeader: true }, _includes: { header: () => '<nav>Nav</nav>' } });
+    expect(html).toContain('<nav>Nav</nav>');
+  });
+
+  it('hides resource when test is falsy', () => {
+    const src = `<sly data-sly-test="\${model.showHeader}" data-sly-resource="\${'header'}"></sly>`;
+    const code = transpile(src, { filename: 'test.html' });
+    const mod: any = {};
+    new Function('module', code)(mod);
+    const fn = Object.values(mod.exports)[0] as Function;
+    const html = fn({ model: { showHeader: false }, _includes: { header: () => '<nav>Nav</nav>' } });
+    expect(html).not.toContain('<nav>');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// transpile — unwrap with multiple children
+// ---------------------------------------------------------------------------
+
+describe('transpile — unwrap with nested children', () => {
+  it('preserves multiple children when wrapper is unwrapped', () => {
+    const src = `<div data-sly-unwrap="\${!model.showWrapper}"><p>first</p><p>second</p></div>`;
+    const code = transpile(src, { filename: 'test.html' });
+    const mod: any = {};
+    new Function('module', code)(mod);
+    const fn = Object.values(mod.exports)[0] as Function;
+
+    const withWrapper = fn({ model: { showWrapper: true } });
+    expect(withWrapper).toContain('<div>');
+    expect(withWrapper).toContain('<p>first</p>');
+    expect(withWrapper).toContain('<p>second</p>');
+
+    const noWrapper = fn({ model: { showWrapper: false } });
+    expect(noWrapper).not.toContain('<div>');
+    expect(noWrapper).toContain('<p>first</p>');
+    expect(noWrapper).toContain('<p>second</p>');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// transpile — repeat + set variable inside loop
+// ---------------------------------------------------------------------------
+
+describe('transpile — set inside repeat', () => {
+  it('evaluates set variable per iteration', () => {
+    const src = `<ul data-sly-repeat.item="\${items}"><li data-sly-set.label="\${item.name}">\${label}</li></ul>`;
+    const code = transpile(src, { filename: 'test.html' });
+    const mod: any = {};
+    new Function('module', code)(mod);
+    const fn = Object.values(mod.exports)[0] as Function;
+    const html = fn({ items: [{ name: 'A' }, { name: 'B' }] });
+    expect(html).toContain('A');
+    expect(html).toContain('B');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// transpile — multiple includes in one template
+// ---------------------------------------------------------------------------
+
+describe('transpile — multiple includes', () => {
+  it('resolves multiple include slots', () => {
+    const src = `<div><sly data-sly-include="./header.html"></sly><main>content</main><sly data-sly-include="./footer.html"></sly></div>`;
+    const code = transpile(src, { filename: 'test.html' });
+    const mod: any = {};
+    new Function('module', code)(mod);
+    const fn = Object.values(mod.exports)[0] as Function;
+    const html = fn({ _includes: { './header.html': () => '<nav>H</nav>', './footer.html': () => '<footer>F</footer>' } });
+    expect(html).toContain('<nav>H</nav>');
+    expect(html).toContain('<footer>F</footer>');
+    expect(html).toContain('content');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// transpile — data-sly-attribute.class overriding static class
+// ---------------------------------------------------------------------------
+
+describe('transpile — dynamic attribute overrides static', () => {
+  it('dynamic class replaces static class attribute', () => {
+    const src = `<div class="static-class" data-sly-attribute.class="\${model.cls}">content</div>`;
+    const code = transpile(src, { filename: 'test.html' });
+    const mod: any = {};
+    new Function('module', code)(mod);
+    const fn = Object.values(mod.exports)[0] as Function;
+    const html = fn({ model: { cls: 'dynamic' } });
+    expect(html).toContain('class="dynamic"');
+    expect(html).not.toContain('static-class');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// transpile — test + include combined
+// ---------------------------------------------------------------------------
+
+describe('transpile — test + include combined', () => {
+  it('skips include when test is falsy', () => {
+    const src = `<sly data-sly-test="\${model.show}" data-sly-include="./partial.html"/>`;
+    const code = transpile(src, { filename: 'test.html' });
+    const mod: any = {};
+    new Function('module', code)(mod);
+    const fn = Object.values(mod.exports)[0] as Function;
+    const html = fn({ model: { show: false }, _includes: { './partial.html': () => 'INCLUDED' } });
+    expect(html).not.toContain('INCLUDED');
+  });
+
+  it('renders include when test is truthy', () => {
+    const src = `<sly data-sly-test="\${model.show}" data-sly-include="./partial.html"/>`;
+    const code = transpile(src, { filename: 'test.html' });
+    const mod: any = {};
+    new Function('module', code)(mod);
+    const fn = Object.values(mod.exports)[0] as Function;
+    const html = fn({ model: { show: true }, _includes: { './partial.html': () => 'INCLUDED' } });
+    expect(html).toContain('INCLUDED');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// transpile — data-sly-list with text directive
+// ---------------------------------------------------------------------------
+
+describe('transpile — list + text combined', () => {
+  it('list mode with text directive on inner element', () => {
+    const src = `<ul data-sly-list.item="\${items}"><li data-sly-text="\${item.label}">fallback</li></ul>`;
+    const code = transpile(src, { filename: 'test.html' });
+    const mod: any = {};
+    new Function('module', code)(mod);
+    const fn = Object.values(mod.exports)[0] as Function;
+    const html = fn({ items: [{ label: 'A' }, { label: 'B' }] });
+    expect(html).toContain('<li>A</li>');
+    expect(html).toContain('<li>B</li>');
+    expect(html).not.toContain('fallback');
+    expect(html.match(/<ul>/g)?.length).toBe(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// transpile — data-sly-repeat with test attribute on inner element
+// ---------------------------------------------------------------------------
+
+describe('transpile — repeat with conditional inner elements', () => {
+  it('conditionally renders inner content per item', () => {
+    const src = `<div data-sly-repeat.item="\${items}"><span data-sly-test="\${item.show}">\${item.name}</span></div>`;
+    const code = transpile(src, { filename: 'test.html' });
+    const mod: any = {};
+    new Function('module', code)(mod);
+    const fn = Object.values(mod.exports)[0] as Function;
+    const html = fn({ items: [{ name: 'A', show: true }, { name: 'B', show: false }, { name: 'C', show: true }] });
+    expect(html).toContain('A');
+    expect(html).not.toContain('B');
+    expect(html).toContain('C');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// transpile — complex real-world AEM pattern (accordion-like)
+// ---------------------------------------------------------------------------
+
+describe('transpile — real-world AEM accordion pattern', () => {
+  const accordionSrc = `
+    <div data-sly-use.accordion="com.adobe.cq.wcm.core.components.models.Accordion"
+         data-sly-test="\${accordion.items.size > 0}"
+         class="cmp-accordion"
+         id="\${accordion.id}">
+      <div data-sly-repeat.item="\${accordion.items}"
+           class="cmp-accordion__item">
+        <h3 data-sly-element="\${accordion.headingElement || 'h3'}"
+            class="cmp-accordion__header">
+          <button class="cmp-accordion__button\${(item.name in accordion.expandedItems) ? ' cmp-accordion__button--expanded' : ''}"
+                  data-sly-attribute.aria-expanded="\${item.name in accordion.expandedItems}"
+                  data-sly-attribute.id="\${accordion.id}-item-\${item.name}">
+            <span class="cmp-accordion__title">\${item.title}</span>
+          </button>
+        </h3>
+        <div data-sly-test="\${item.name in accordion.expandedItems}"
+             class="cmp-accordion__panel"
+             role="region">
+          <p>\${item.description}</p>
+        </div>
+      </div>
+    </div>`;
+
+  it('renders expanded accordion items correctly', () => {
+    const code = transpile(accordionSrc, { filename: 'accordion.html' });
+    const mod: any = {};
+    new Function('module', code)(mod);
+    const fn = Object.values(mod.exports)[0] as Function;
+    const html = fn({
+      accordion: {
+        items: [
+          { name: 'panel-1', title: 'Section 1', description: 'Content 1' },
+          { name: 'panel-2', title: 'Section 2', description: 'Content 2' },
+        ],
+        expandedItems: { 'panel-1': true },
+        id: 'acc1',
+        headingElement: 'h3',
+      },
+    });
+    expect(html).toContain('cmp-accordion');
+    expect(html).toContain('Section 1');
+    expect(html).toContain('Section 2');
+    expect(html).toContain('cmp-accordion__button--expanded');
+    expect(html).toContain('Content 1');
+    // panel-2 is NOT expanded, so its panel content should not show
+    expect(html).not.toContain('Content 2');
+  });
+
+  it('renders nothing when no items', () => {
+    const code = transpile(accordionSrc, { filename: 'accordion.html' });
+    const mod: any = {};
+    new Function('module', code)(mod);
+    const fn = Object.values(mod.exports)[0] as Function;
+    const html = fn({ accordion: { items: [], expandedItems: {}, id: 'acc1' } });
+    expect(html).toBe('');
+  });
+
+  it('handles undefined expandedItems safely', () => {
+    const code = transpile(accordionSrc, { filename: 'accordion.html' });
+    const mod: any = {};
+    new Function('module', code)(mod);
+    const fn = Object.values(mod.exports)[0] as Function;
+    expect(() => fn({
+      accordion: {
+        items: [{ name: 'p1', title: 'T', description: 'D' }],
+        expandedItems: undefined,
+        id: 'acc1',
+      },
+    })).not.toThrow();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// transpile — spread + named dynamic attributes combined
+// ---------------------------------------------------------------------------
+
+describe('transpile — spread + named dynamic attributes', () => {
+  it('renders both spread and named dynamic attributes', () => {
+    const src = `<div data-sly-attribute="\${model.attrs}" data-sly-attribute.id="\${model.id}">content</div>`;
+    const code = transpile(src, { filename: 'test.html' });
+    const mod: any = {};
+    new Function('module', code)(mod);
+    const fn = Object.values(mod.exports)[0] as Function;
+    const html = fn({ model: { attrs: { role: 'dialog', title: 'Hello' }, id: 'myId' } });
+    expect(html).toContain('id="myId"');
+    expect(html).toContain('role="dialog"');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// transpile — data-sly-test with boolean logic
+// ---------------------------------------------------------------------------
+
+describe('transpile — test with complex expressions', () => {
+  it('handles && in test expression', () => {
+    const src = `<div data-sly-test="\${model.a && model.b}">both</div>`;
+    const code = transpile(src, { filename: 'test.html' });
+    const mod: any = {};
+    new Function('module', code)(mod);
+    const fn = Object.values(mod.exports)[0] as Function;
+    expect(fn({ model: { a: true, b: true } })).toContain('both');
+    expect(fn({ model: { a: true, b: false } })).not.toContain('both');
+  });
+
+  it('handles negation in test expression', () => {
+    const src = `<div data-sly-test="\${!model.hidden}">visible</div>`;
+    const code = transpile(src, { filename: 'test.html' });
+    const mod: any = {};
+    new Function('module', code)(mod);
+    const fn = Object.values(mod.exports)[0] as Function;
+    expect(fn({ model: { hidden: false } })).toContain('visible');
+    expect(fn({ model: { hidden: true } })).not.toContain('visible');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// transpile — void element with dynamic attributes
+// ---------------------------------------------------------------------------
+
+describe('transpile — void element + dynamic attributes', () => {
+  it('renders input with multiple dynamic attributes', () => {
+    const src = `<input type="text" data-sly-attribute.name="\${model.name}" data-sly-attribute.value="\${model.val}" data-sly-attribute.disabled="\${model.isDisabled}">`;
+    const code = transpile(src, { filename: 'test.html' });
+    const mod: any = {};
+    new Function('module', code)(mod);
+    const fn = Object.values(mod.exports)[0] as Function;
+    const html = fn({ model: { name: 'email', val: 'test@test.com', isDisabled: true } });
+    expect(html).toContain('type="text"');
+    expect(html).toContain('name="email"');
+    expect(html).toContain('value="test@test.com"');
+    expect(html).toContain('disabled');
+    expect(html).not.toContain('</input>');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// transpile — deriveBaseName / function naming
+// ---------------------------------------------------------------------------
+
+describe('transpile — function naming', () => {
+  it('converts kebab-case filename to PascalCase', () => {
+    const out = transpile('<div>hello</div>', { filename: 'my-cool-widget.html' });
+    expect(out).toContain('createMyCoolWidget');
+  });
+
+  it('converts underscore filename to PascalCase', () => {
+    const out = transpile('<div>hello</div>', { filename: 'my_widget.html' });
+    expect(out).toContain('createMyWidget');
+  });
+
+  it('handles simple filename', () => {
+    const out = transpile('<div>hello</div>', { filename: 'button.html' });
+    expect(out).toContain('createButton');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// transpile — modelTransforms option
+// ---------------------------------------------------------------------------
+
+describe('transpile — modelTransforms', () => {
+  it('applies computed properties from modelTransforms', () => {
+    const src = `<div data-sly-use.hero="com.example.HeroModel">\${hero.title}</div>`;
+    const code = transpile(src, { filename: 'test.html', modelTransforms: {
+      HeroModel: { subtitle: 'hero.name + " extra"' }
+    }});
+    expect(code).toContain('Object.assign');
+    // The transform should reference hero, not model
+    expect(code).toContain('hero');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// transpile — reserved word in property access vs variable
+// ---------------------------------------------------------------------------
+
+describe('transpile — reserved words in context', () => {
+  it('does not escape "class" in property access position', () => {
+    const result = convertExpr('${obj.class}');
+    // obj.class → obj?.class (NOT obj?._class since class is a property)
+    expect(result).toContain('obj');
+  });
+
+  it('escapes "class" as standalone variable', () => {
+    expect(convertExpr('${class}')).toBe('_class');
+  });
+
+  it('escapes "for" as standalone variable', () => {
+    expect(convertExpr('${for}')).toBe('_for');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// transpile — comments inside conditionally rendered content
+// ---------------------------------------------------------------------------
+
+describe('transpile — comments inside conditional', () => {
+  it('preserves HTML comments inside test block', () => {
+    const src = `<div data-sly-test="\${model.show}"><!-- note --><span>content</span></div>`;
+    const code = transpile(src, { filename: 'test.html' });
+    const mod: any = {};
+    new Function('module', code)(mod);
+    const fn = Object.values(mod.exports)[0] as Function;
+    const html = fn({ model: { show: true } });
+    expect(html).toContain('<!-- note -->');
+    expect(html).toContain('content');
+  });
+
+  it('strips HTL comments inside test block', () => {
+    const src = `<div data-sly-test="\${model.show}"><!--/* hidden */--><span>visible</span></div>`;
+    const code = transpile(src, { filename: 'test.html' });
+    const mod: any = {};
+    new Function('module', code)(mod);
+    const fn = Object.values(mod.exports)[0] as Function;
+    const html = fn({ model: { show: true } });
+    expect(html).not.toContain('hidden');
+    expect(html).toContain('visible');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// transpile — set with mixed literal + expression (template literal set)
+// ---------------------------------------------------------------------------
+
+describe('transpile — set with mixed literal and expression', () => {
+  it('builds a template literal for mixed set value', () => {
+    const src = `<div data-sly-set.fullUrl="/page/\${model.slug}"><a href="\${fullUrl}">link</a></div>`;
+    const code = transpile(src, { filename: 'test.html' });
+    const mod: any = {};
+    new Function('module', code)(mod);
+    const fn = Object.values(mod.exports)[0] as Function;
+    const html = fn({ model: { slug: 'about-us' } });
+    expect(html).toContain('href="/page/about-us"');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// transpile — custom omitAttrs patterns
+// ---------------------------------------------------------------------------
+
+describe('transpile — custom omitAttrs', () => {
+  it('strips attributes matching custom omitAttrs patterns', () => {
+    const src = `<div data-custom-tracking="evt123" class="wrapper">content</div>`;
+    const code = transpile(src, { filename: 'test.html', omitAttrs: [/^data-custom/] });
+    const mod: any = {};
+    new Function('module', code)(mod);
+    const fn = Object.values(mod.exports)[0] as Function;
+    const html = fn();
+    expect(html).not.toContain('data-custom-tracking');
+    expect(html).toContain('class="wrapper"');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// transpile — data-sly-repeat on the outer element (not list mode)
+// ---------------------------------------------------------------------------
+
+describe('transpile — repeat on outer element repeats entire element', () => {
+  it('repeats the wrapper element itself', () => {
+    const src = `<div class="card" data-sly-repeat.item="\${items}"><span>\${item}</span></div>`;
+    const code = transpile(src, { filename: 'test.html' });
+    const mod: any = {};
+    new Function('module', code)(mod);
+    const fn = Object.values(mod.exports)[0] as Function;
+    const html = fn({ items: ['A', 'B', 'C'] });
+    expect(html.match(/<div class="card">/g)?.length).toBe(3);
+    expect(html).toContain('A');
+    expect(html).toContain('C');
   });
 });

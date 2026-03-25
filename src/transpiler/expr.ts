@@ -53,9 +53,9 @@ export function convertExpr(raw: string): string {
   arrays.forEach((arr, i) => { inner = inner.replace(`__ARR${i}__`, arr); });
 
   inner = inner.replaceAll(/(\w|\])(?<!\?)\[/g, '$1?.[');
-  inner = inner.replaceAll(/(\w|\])\.([\w$])/g, (m, a, b) => /\d/.test(a) && /\d/.test(b) ? m : `${a}?.${b}`);
-  inner = inner.replaceAll(/(\S+)\s+in\s+(\S+)/g, (_: string, left: string, right: string) => {
-    return `(${right} && ${left} in ${right})`;
+  inner = inner.replaceAll(/(\w|\])\.(?=([\w$]))/g, (m, a, b) => /\d/.test(a) && /\d/.test(b) ? m : `${a}?.`);
+  inner = inner.replaceAll(/([\w$.?[\]]+)\s+in\s+([\w$.?[\]]+)/g, (_match: string, left: string, right: string) => {
+    return `(${right}) && (${left} in ${right})`;
   });
 
   inner = inner.replaceAll(/(?<![?.])\b(class|for)\b/g, '_$1');

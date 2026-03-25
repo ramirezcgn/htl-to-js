@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { convertExpr, convertAttrValue } from './expr';
+import { convertExpr, convertAttrValue, extractExprs } from './expr';
 
 export interface SetDecl {
   name: string;
@@ -199,7 +199,24 @@ export function parseDirectives(attrs: Record<string, string>, sourceDir = ''): 
     if (attrMatch) {
       const attrName = attrMatch[1];
       directives.dynamicAttrs ??= [];
-      directives.dynamicAttrs.push({ name: attrName, expr: convertExpr(val) });
+      const t = val.trim();
+      const exprs = extractExprs(t);
+      const isPureExpr = exprs.length === 1 && exprs[0].index === 0 && exprs[0].end === t.length;
+      if (isPureExpr) {
+        directives.dynamicAttrs.push({ name: attrName, expr: convertExpr(val) });
+      } else if (exprs.length > 0) {
+        const parts: string[] = [];
+        let last = 0;
+        for (const { index, expr: e, end } of exprs) {
+          if (index > last) parts.push(t.slice(last, index).replace(/`/g, '\\`'));
+          parts.push(`\${${convertExpr(e)}}`);
+          last = end;
+        }
+        if (last < t.length) parts.push(t.slice(last).replace(/`/g, '\\`'));
+        directives.dynamicAttrs.push({ name: attrName, expr: '`' + parts.join('') + '`' });
+      } else {
+        directives.dynamicAttrs.push({ name: attrName, expr: `'${t.replace(/'/g, "\\'")}'` });
+      }
       directives.skip.add(key);
       directives.skip.add(attrName);
       continue;

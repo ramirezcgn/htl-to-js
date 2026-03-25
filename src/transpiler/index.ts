@@ -1,5 +1,5 @@
-import { parseFragment } from 'parse5';
-import { createContext, walkNodes, attrsToObj } from './walker';
+import { parseDocument } from 'htmlparser2';
+import { createContext, walkNodes } from './walker';
 import type { WalkerContext } from './walker';
 import type { SetDecl } from './directives';
 import { parseDirectives } from './directives';
@@ -60,7 +60,7 @@ interface TemplateInfo {
 export function transpile(htlSource: string, { filename = 'component', omitAttrs = DEFAULT_OMIT_ATTRS, modelTransforms = {} }: TranspileOptions = {}): string {
   const expandedSource = htlSource.replaceAll(/<sly\b([^>]*?)\/>/g, '<sly$1></sly>');
   const { normalized: normalizedSource, restoreMap } = normalizeSetVarCasing(expandedSource);
-  const document = parseFragment(normalizedSource);
+  const document = parseDocument(normalizedSource);
 
   const originalTemplateNames = extractOriginalTemplateNames(normalizedSource);
   const templates = findNamedTemplates(document, originalTemplateNames);
@@ -90,25 +90,24 @@ export function transpile(htlSource: string, { filename = 'component', omitAttrs
 
 function findNamedTemplates(document: any, originalNames: Record<string, string> = {}): TemplateInfo[] {
   const templates: TemplateInfo[] = [];
-  collectTemplates(document.childNodes, templates, originalNames);
+  collectTemplates(document.children, templates, originalNames);
   return templates;
 }
 
 function collectTemplates(nodes: any[], acc: TemplateInfo[], originalNames: Record<string, string> = {}): void {
   for (const node of nodes) {
-    if (node.attrs) {
-      const tmplAttr = node.attrs.find((a: { name: string }) => a.name.startsWith('data-sly-template.'));
-      if (tmplAttr) {
-        const lowercasedName = tmplAttr.name.replace('data-sly-template.', '');
+    if (node.attribs) {
+      const tmplKey = Object.keys(node.attribs).find(k => k.startsWith('data-sly-template.'));
+      if (tmplKey) {
+        const lowercasedName = tmplKey.replace('data-sly-template.', '');
         const name = originalNames[lowercasedName] || lowercasedName;
-        const atMatch = tmplAttr.value.match(/@\s*([\w,\s]+)/);
+        const atMatch = node.attribs[tmplKey].match(/@\s*([\w,\s]+)/);
         const params = atMatch ? atMatch[1].split(',').map((s: string) => s.trim()).filter(Boolean) : [];
         acc.push({ name, params, node });
         continue;
       }
     }
-    if (node.content?.childNodes) collectTemplates(node.content.childNodes, acc, originalNames);
-    else if (node.childNodes) collectTemplates(node.childNodes, acc, originalNames);
+    if (node.children) collectTemplates(node.children, acc, originalNames);
   }
 }
 
@@ -121,11 +120,11 @@ function transpileNamedTemplates(templates: TemplateInfo[], omitAttrs: RegExp[],
     const ctx = createContext(omitAttrs, sourceDir);
     Object.assign(ctx.localTemplates, localTemplates);
     for (const n of Object.keys(localTemplates)) ctx.definedVars.add(n);
-    const templateDir = parseDirectives(attrsToObj(node.attrs || []), sourceDir);
+    const templateDir = parseDirectives(node.attribs || {}, sourceDir);
     Object.assign(ctx.uses, templateDir.use);
     Object.assign(ctx.useDefaults, templateDir.useDefaults || {});
     Object.assign(ctx.fileUse, templateDir.fileUse);
-    const children = node.content ? node.content.childNodes : node.childNodes;
+    const children = node.children || [];
     const body = walkNodes(children, ctx);
     const fnName = toPascalFnName('create', name);
     fnNames.push(fnName);
@@ -159,7 +158,7 @@ function transpileNamedTemplates(templates: TemplateInfo[], omitAttrs: RegExp[],
 
 function transpileSingleTemplate(document: any, filename: string, omitAttrs: RegExp[], sourceDir: string, modelTransforms: Record<string, Record<string, string>> = {}): string {
   const ctx = createContext(omitAttrs, sourceDir);
-  const body = walkNodes(document.childNodes, ctx);
+  const body = walkNodes(document.children, ctx);
   const fnName = toPascalFnName('create', deriveBaseName(filename));
 
   const params: ParamDecl[] = Object.keys(ctx.uses).map(name => ({ name, default: ctx.useDefaults[name] ?? '{}' }));

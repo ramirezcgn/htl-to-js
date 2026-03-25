@@ -1781,3 +1781,37 @@ describe('transpile — repeat on outer element repeats entire element', () => {
     expect(html).toContain('C');
   });
 });
+
+// ---------------------------------------------------------------------------
+// sly inside table-context (foster-parenting bug)
+// ---------------------------------------------------------------------------
+
+describe('transpile — sly inside table row', () => {
+  it('keeps sly as child of tr (no foster parenting)', () => {
+    const src = `<tr data-sly-list.header="\${model.headers}"><sly data-sly-test="\${headerList.index < model.columnsCount}"><th>\${header.title}</th></sly></tr>`;
+    const code = transpile(src, { filename: 'table.html' });
+    const mod: any = {};
+    new Function('module', code)(mod);
+    const fn = Object.values(mod.exports)[0] as Function;
+    const html = fn({ model: { headers: [{ title: 'A' }, { title: 'B' }, { title: 'C' }], columnsCount: 2 } });
+    expect(html).toContain('<th>');
+    expect(html.match(/<th>/g)?.length).toBe(2);
+    expect(html).toContain('A');
+    expect(html).toContain('B');
+    expect(html).not.toContain('C');
+  });
+
+  it('scopes headerList inside the .map() callback', () => {
+    const src = `<tr data-sly-list.header="\${model.headers}"><sly data-sly-test="\${headerList.index < 1}"><td>\${header}</td></sly></tr>`;
+    const code = transpile(src, { filename: 'table.html' });
+    const mod: any = {};
+    new Function('module', code)(mod);
+    const fn = Object.values(mod.exports)[0] as Function;
+    // Should not throw ReferenceError: headerList is not defined
+    expect(() => fn({ model: { headers: ['X', 'Y'] } })).not.toThrow();
+    const html = fn({ model: { headers: ['X', 'Y'] } });
+    expect(html.match(/<td>/g)?.length).toBe(1);
+    expect(html).toContain('X');
+    expect(html).not.toContain('Y');
+  });
+});

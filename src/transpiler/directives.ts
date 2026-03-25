@@ -208,14 +208,15 @@ export function parseDirectives(attrs: Record<string, string>, sourceDir = ''): 
         const parts: string[] = [];
         let last = 0;
         for (const { index, expr: e, end } of exprs) {
-          if (index > last) parts.push(t.slice(last, index).replace(/`/g, '\\`'));
+          if (index > last) parts.push(t.slice(last, index).replaceAll("`", '\\`'));
           parts.push(`\${${convertExpr(e)}}`);
           last = end;
         }
-        if (last < t.length) parts.push(t.slice(last).replace(/`/g, '\\`'));
+        if (last < t.length) parts.push(t.slice(last).replaceAll("`", "\\`"));
         directives.dynamicAttrs.push({ name: attrName, expr: '`' + parts.join('') + '`' });
       } else {
-        directives.dynamicAttrs.push({ name: attrName, expr: `'${t.replace(/'/g, "\\'")}'` });
+        const escaped = t.replaceAll("'", String.raw`\'`);
+        directives.dynamicAttrs.push({ name: attrName, expr: "'" + escaped + "'" });
       }
       directives.skip.add(key);
       directives.skip.add(attrName);

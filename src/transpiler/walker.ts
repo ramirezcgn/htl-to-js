@@ -41,22 +41,25 @@ export function walkNodes(nodes: any[], ctx: WalkerContext): string {
 }
 
 function walkNode(node: any, ctx: WalkerContext): string {
-  switch (node.nodeName) {
-    case '#text':
-      return convertTextContent(node.value);
-    case '#comment':
+  switch (node.type) {
+    case 'text':
+      return convertTextContent(node.data);
+    case 'comment':
       if (node.data?.trimStart().startsWith('/*')) return '';
       return `<!--${node.data}-->`;
-    case '#document':
-    case '#document-fragment':
-      return walkNodes(node.childNodes, ctx);
-    default:
+    case 'root':
+      return walkNodes(node.children, ctx);
+    case 'tag':
+    case 'script':
+    case 'style':
       return processElement(node, ctx);
+    default:
+      return '';
   }
 }
 
 function processElement(node: any, ctx: WalkerContext): string {
-  const attrsMap = attrsToObj(node.attrs || []);
+  const attrsMap = node.attribs || {};
   const dir = parseDirectives(attrsMap, ctx.sourceDir);
 
   Object.assign(ctx.uses, dir.use);
@@ -89,7 +92,7 @@ function processElement(node: any, ctx: WalkerContext): string {
 
   for (const s of dir.sets) localCtx.sets.push(s);
 
-  if (dir.template) return walkNodes(node.childNodes, localCtx);
+  if (dir.template) return walkNodes(node.children, localCtx);
 
   if (dir.call) {
     const { fn, params } = dir.call;
@@ -127,9 +130,9 @@ function processElement(node: any, ctx: WalkerContext): string {
       callContent = `\${${fn}?.({ ${extraParams} }) ?? ''}`;
     }
 
-    if (node.tagName !== 'sly') {
+    if (node.name !== 'sly') {
       const attrsStr = buildAttrs(attrsMap, dir, ctx.omitAttrs);
-      const element = `<${node.tagName}${attrsStr}>${callContent}</${node.tagName}>`;
+      const element = `<${node.name}${attrsStr}>${callContent}</${node.name}>`;
       return applyTest(dir.test, element);
     }
 
@@ -150,23 +153,23 @@ function processElement(node: any, ctx: WalkerContext): string {
     return applyTest(dir.test, `\${${includeExpr}}`);
   }
 
-  if (node.tagName === 'sly' && !dir.repeat) {
+  if (node.name === 'sly' && !dir.repeat) {
     const children = dir.resource
       ? `\${_includes?.[${dir.resource}]?.() ?? ''}`
-      : walkNodes(node.childNodes, localCtx);
+      : walkNodes(node.children, localCtx);
     return applyTest(dir.test, children);
   }
 
   const tagExpr = dir.element
-    ? `\${${dir.element} || '${node.tagName}'}`
-    : node.tagName;
+    ? `\${${dir.element} || '${node.name}'}`
+    : node.name;
 
   const attrsStr = buildAttrs(attrsMap, dir, ctx.omitAttrs);
   const innerContent = buildInnerContent(node, dir, localCtx);
 
-  const element = node.tagName === 'sly'
+  const element = node.name === 'sly'
     ? innerContent
-    : VOID_ELEMENTS.has(node.tagName)
+    : VOID_ELEMENTS.has(node.name)
       ? `<${tagExpr}${attrsStr}>`
       : `<${tagExpr}${attrsStr}>${innerContent}</${tagExpr}>`;
 
@@ -199,10 +202,10 @@ function processElement(node: any, ctx: WalkerContext): string {
     const setLines = inner.map(toDecl).join(' ');
     const hoistLines = hoisted.map(toDecl).join(' ');
 
-    if (listMode && node.tagName !== 'sly') {
+    if (listMode && node.name !== 'sly') {
       const childBody = setLines ? `${listDecl} ${setLines} return \`${innerContent}\`;` : `${listDecl} return \`${innerContent}\`;`;
       const childLoop = `\${((${listExpr}) || []).map((${varName}, _i, _arr) => { if (${varName} == null) return ''; ${childBody} }).join('')}`;
-      result = VOID_ELEMENTS.has(node.tagName)
+      result = VOID_ELEMENTS.has(node.name)
         ? `<${tagExpr}${attrsStr}>`
         : `<${tagExpr}${attrsStr}>${childLoop}</${tagExpr}>`;
     } else {
@@ -233,7 +236,7 @@ function buildInnerContent(node: any, dir: Directives, ctx: WalkerContext): stri
     return `\${_includes?.[${dir.resource}]?.() ?? ''}`;
   }
   if (dir.text) return `\${${dir.text}}`;
-  return walkNodes(node.childNodes, ctx);
+  return walkNodes(node.children, ctx);
 }
 
 function buildAttrs(attrsMap: Record<string, string>, dir: Directives, omitAttrs: RegExp[]): string {
@@ -261,6 +264,6 @@ function applyTest(condition: string | null, content: string): string {
   return `\${(${condition}) ? \`${content}\` : ''}`;
 }
 
-export function attrsToObj(attrsList: Array<{ name: string; value: string }>): Record<string, string> {
-  return Object.fromEntries(attrsList.map(a => [a.name, a.value]));
+export function attrsToObj(attribs: Record<string, string>): Record<string, string> {
+  return attribs;
 }

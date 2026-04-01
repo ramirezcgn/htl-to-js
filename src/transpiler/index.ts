@@ -143,7 +143,7 @@ function transpileNamedTemplates(templates: TemplateInfo[], omitAttrs: RegExp[],
     for (const p of tempParams) if (!allParams.includes(p.name)) allParams.push(p.name);
     const paramStr = buildParamStr(allParams.map(p => ({
       name: p,
-      default: AEM_IMPLICITS[p] ?? ctx.useDefaults[p] ?? '{}',
+      default: AEM_IMPLICITS[p] ?? ctx.useDefaults[p] ?? (params.includes(p) ? "''" : '{}'),
     })));
     const transformDecls = buildModelTransformDecls(ctx.uses, modelTransforms);
     return buildFunctionBody(fnName, paramStr, setDecls, body, transformDecls);

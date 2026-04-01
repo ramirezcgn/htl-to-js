@@ -673,6 +673,23 @@ describe('transpile — data-sly-template & data-sly-call', () => {
     expect(code).toContain('class="wrapper"');
     expect(code).toContain('<div');
   });
+
+  it('defaults unpassed optional params to empty string, not {}', () => {
+    // class and loading are declared but not passed by the caller
+    // loading || 'lazy' should evaluate to 'lazy', not '{}'
+    const src = `<template data-sly-template.img="\${@ src, alt, class, loading}">
+      <img class="\${class}" src="\${src}" alt="\${alt}" loading="\${loading || 'lazy'}">
+    </template>`;
+    const code = transpile(src, { filename: 'helper.html' });
+    const mod: any = {};
+    new Function('module', code)(mod);
+    const fn = mod.exports.createImg;
+    const html = fn({ src: '/img/test.png', alt: 'test' });
+    expect(html).toContain('loading="lazy"');
+    expect(html).not.toContain('loading="{}"');
+    expect(html).toContain('class=""');
+    expect(html).not.toContain('class="{}"');
+  });
 });
 
 // ---------------------------------------------------------------------------

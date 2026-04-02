@@ -126,6 +126,8 @@ The following AEM implicit objects are automatically detected and added as optio
 | `model` | `{}` |
 | `_includes` | `{}` |
 | `_i18n` | `{}` |
+| `_wrapperClass` | `''` |
+| `_resourceWrappers` | `{}` |
 | `request` | `{ requestPathInfo: { selectorString: '', suffix: '', resourcePath: '' }, contextPath: '' }` |
 
 Variables declared via `data-sly-use.X` are always included as parameters. Any other free variables referenced in directive expressions are also detected and added as parameters with `{}` defaults.
@@ -417,9 +419,150 @@ config.module.rules.push({
 
 Pass `omitAttrs: []` to disable filtering entirely.
 
+### `wrapperClass`
+
+Wraps the component output in a `<div>` with a CSS class, similar to how AEM wraps component markup.
+
+| Value | Behavior |
+|---|---|
+| `true` | Auto-derives the class from the parent folder name (e.g. `/apps/mysite/image/image.html` → `"image"`) |
+| `'custom classes'` | Uses the provided string as the class attribute |
+| `false` / omitted | No wrapper (default — backward compatible) |
+
+```js
+use: {
+  loader: require.resolve('htl-to-js/loader'),
+  options: {
+    wrapperClass: true,
+  }
+}
+```
+
+At runtime, the generated function also accepts `_wrapperClass` to append extra classes to the wrapper. This is useful when a parent component (like a responsive grid) needs to inject layout classes into its children:
+
+```js
+const html = createColumn({ _wrapperClass: 'aem-GridColumn aem-GridColumn--default--12' });
+// → <div class="column aem-GridColumn aem-GridColumn--default--12">...</div>
+```
+
+### `resourceWrappers`
+
+Object mapping resource keys to CSS classes (or configuration objects) that wrap `data-sly-resource` slot output. Mimics the extra wrapper divs that AEM's responsive grid adds around its children.
+
+**Simple string value** — wraps the slot output in a `<div>` with that class:
+
+```js
+options: {
+  resourceWrappers: {
+    responsivegrid: 'aem-Grid aem-Grid--12 aem-Grid--default--12',
+  }
+}
+```
+
+**Object value** — wraps the slot output and injects a class into the first element of each child:
+
+```js
+options: {
+  resourceWrappers: {
+    responsivegrid: {
+      wrapper: 'aem-Grid aem-Grid--12 aem-Grid--default--12',
+      childClass: 'aem-GridColumn aem-GridColumn--default--12',
+    }
+  }
+}
+```
+
+- **`wrapper`** — CSS class for the extra `<div>` added around the slot HTML
+- **`childClass`** — CSS class injected into the first element of the child component's output (merges with existing `class` or creates one)
+
+At runtime, the `_resourceWrappers` parameter can override or extend the static config.
+
 ### `modelTransforms`
 
-Object mapping use-class patterns to property injections. Enables build-time property merging based on the `data-sly-use` class name.
+Object mapping `data-sly-use` class-name patterns to property injections. Enables build-time property merging based on the use class.
+
+Supported special keys:
+
+| Key | Purpose |
+|---|---|
+| `_includes` | Merges extra entries into the `_includes` map |
+| `_resourceWrappers` | Merges resource wrapper configs (supports object `{ wrapper, childClass }` format) |
+| `_wrapperClass` | Sets the default `_wrapperClass` value for the component |
+| *(other keys)* | Merged as computed properties into the model variable |
+
+**Example — configure AEM grid wrappers in one place:**
+
+```js
+const modelTransforms = {
+  'Container': {
+    _resourceWrappers: "{ responsivegrid: { wrapper: 'aem-Grid aem-Grid--12 aem-Grid--default--12', childClass: 'aem-GridColumn aem-GridColumn--default--12' } }",
+  },
+};
+```
+
+Any component that uses `data-sly-use.x="com.example.Container"` will automatically get the grid wrapper configuration applied, with no manual runtime wiring needed.
+
+---
+
+## AEM component composition example
+
+Combining `wrapperClass`, `resourceWrappers`, and `modelTransforms` reproduces AEM's full component nesting structure.
+
+**Config (shared across all components):**
+
+```js
+const options = {
+  wrapperClass: true,
+  modelTransforms: {
+    'Container': {
+      _resourceWrappers: "{ responsivegrid: { wrapper: 'aem-Grid aem-Grid--12 aem-Grid--default--12', childClass: 'aem-GridColumn aem-GridColumn--default--12' } }",
+    },
+  },
+};
+```
+
+**Container HTL:**
+
+```html
+<div data-sly-use.container="com.example.Container" class="cmp-container">
+  <sly data-sly-resource="${'responsivegrid'}"></sly>
+</div>
+```
+
+**Column HTL:**
+
+```html
+<div class="cmp-column">Sample Text</div>
+```
+
+**Story:**
+
+```js
+import { createContainer } from '../container/container.html';
+import { createColumn } from '../column/column.html';
+
+export const Default = {
+  render: () => createContainer({
+    _includes: {
+      responsivegrid: () => createColumn(),
+    },
+  }),
+};
+```
+
+**Output:**
+
+```html
+<div class="container">
+  <div class="cmp-container">
+    <div class="aem-Grid aem-Grid--12 aem-Grid--default--12">
+      <div class="column aem-GridColumn aem-GridColumn--default--12">
+        <div class="cmp-column">Sample Text</div>
+      </div>
+    </div>
+  </div>
+</div>
+```
 
 ---
 
@@ -468,19 +611,6 @@ card/default.html  →  card/default.template.js
 - **`data-sly-call` across files** — the called template must be imported and passed explicitly via args; cross-file resolution at build time is not supported unless the file is declared via `data-sly-use`.
 - **Java expressions** in `data-sly-use` — the class path is ignored; the binding name becomes a function parameter.
 - **`data-sly-use` with `@` defaults** — the default values are extracted as destructuring defaults, but complex expressions are not supported.
-
----
-
-## Development
-
-Written in TypeScript. Source in `src/`, compiled to `dist/`.
-
-```bash
-npm run build           # compile TypeScript
-npm test                # run 111 Jest tests
-npm run test:watch      # watch mode
-npm run test:coverage   # with coverage
-```
 
 ---
 

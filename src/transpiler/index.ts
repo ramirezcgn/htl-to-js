@@ -29,6 +29,8 @@ const AEM_IMPLICITS: Record<string, string> = {
   model: '{}',
   _includes: '{}',
   _i18n: '{}',
+  _wrapperClass: "''",
+  _resourceWrappers: '{}',
   request: '{ requestPathInfo: { selectorString: \'\', suffix: \'\', resourcePath: \'\'  }, contextPath: \'\'  }',
 };
 
@@ -36,6 +38,8 @@ interface TranspileOptions {
   filename?: string;
   omitAttrs?: RegExp[];
   modelTransforms?: Record<string, Record<string, string>>;
+  wrapperClass?: string | boolean;
+  resourceWrappers?: Record<string, string>;
 }
 
 interface ParamDecl {
@@ -57,7 +61,7 @@ interface TemplateInfo {
  * @param options
  * @returns A valid CJS module source string
  */
-export function transpile(htlSource: string, { filename = 'component', omitAttrs = DEFAULT_OMIT_ATTRS, modelTransforms = {} }: TranspileOptions = {}): string {
+export function transpile(htlSource: string, { filename = 'component', omitAttrs = DEFAULT_OMIT_ATTRS, modelTransforms = {}, wrapperClass, resourceWrappers }: TranspileOptions = {}): string {
   const expandedSource = htlSource.replaceAll(/<sly\b([^>]*?)\/>/g, '<sly$1></sly>');
   const { normalized: normalizedSource, restoreMap } = normalizeSetVarCasing(expandedSource);
   const document = parseDocument(normalizedSource);
@@ -71,7 +75,7 @@ export function transpile(htlSource: string, { filename = 'component', omitAttrs
   if (templates.length > 0) {
     body = transpileNamedTemplates(templates, omitAttrs, sourceDir, modelTransforms);
   } else {
-    body = transpileSingleTemplate(document, filename, omitAttrs, sourceDir, modelTransforms);
+    body = transpileSingleTemplate(document, filename, omitAttrs, sourceDir, modelTransforms, wrapperClass);
   }
 
   const banner = `// AUTO-GENERATED from ${path.basename(filename)} — DO NOT EDIT\n\n`;
@@ -79,9 +83,23 @@ export function transpile(htlSource: string, { filename = 'component', omitAttrs
     `const _htlAttr = (v) => v == null ? '' : (typeof v === 'object' ? JSON.stringify(v).replace(/"/g, '&quot;') : String(v).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'));`,
     `const _htlDynAttr = (name, val) => { if (val == null || val === false) return ''; if (val === true) return ' ' + name; return ' ' + name + '="' + _htlAttr(val) + '"'; };`,
     `const _htlSpreadAttrs = (obj) => { if (!obj || typeof obj !== 'object') return ''; return Object.entries(obj).map(([k, v]) => _htlDynAttr(k, v)).join(''); };`,
+    `const _wrapResource = (key, html, wrappers) => {`,
+    `  const cfg = wrappers?.[key]; if (!cfg) return html;`,
+    `  if (typeof cfg === 'string') return '<div class="' + cfg + '">' + html + '</div>';`,
+    `  let r = html;`,
+    `  if (cfg.childClass) {`,
+    `    let d = false;`,
+    String.raw`    r = r.replace(/^(\s*<\w+\b[^>]*?\bclass=")([^"]*)/, (m, p, v) => { d = true; return p + v + ' ' + cfg.childClass; });`,
+    `    if (!d) r = r.replace(/^(\\s*<\\w+)/, '$1 class="' + cfg.childClass + '"');`,
+    `  }`,
+    `  if (cfg.wrapper) r = '<div class="' + cfg.wrapper + '">' + r + '</div>';`,
+    `  return r;`,
+    `};`,
     '',
-  ].join('\n');  
-  return banner + helpers + restoreVarCasing(body, restoreMap);
+  ].join('\n');
+
+  const resourceWrapperDecl = `const _staticResourceWrappers = ${JSON.stringify(resourceWrappers ?? {})};\n`;
+  return banner + helpers + resourceWrapperDecl + restoreVarCasing(body, restoreMap);
 }
 
 // ---------------------------------------------------------------------------
@@ -156,10 +174,17 @@ function transpileNamedTemplates(templates: TemplateInfo[], omitAttrs: RegExp[],
 // Single template mode
 // ---------------------------------------------------------------------------
 
-function transpileSingleTemplate(document: any, filename: string, omitAttrs: RegExp[], sourceDir: string, modelTransforms: Record<string, Record<string, string>> = {}): string {
+function transpileSingleTemplate(document: any, filename: string, omitAttrs: RegExp[], sourceDir: string, modelTransforms: Record<string, Record<string, string>> = {}, wrapperClass?: string | boolean): string {
   const ctx = createContext(omitAttrs, sourceDir);
-  const body = walkNodes(document.children, ctx);
+  let body = walkNodes(document.children, ctx);
   const fnName = toPascalFnName('create', deriveBaseName(filename));
+
+  if (wrapperClass === true) {
+    const folderName = path.basename(path.dirname(path.resolve(filename)));
+    body = `<div class="${folderName}\${_wrapperClass ? ' ' + _wrapperClass : ''}">${body.trim()}</div>`;
+  } else if (typeof wrapperClass === 'string') {
+    body = `<div class="${wrapperClass}\${_wrapperClass ? ' ' + _wrapperClass : ''}">${body.trim()}</div>`;
+  }
 
   const params: ParamDecl[] = Object.keys(ctx.uses).map(name => ({ name, default: ctx.useDefaults[name] ?? '{}' }));
   const setDecls = buildSetDecls(ctx.sets);
@@ -203,7 +228,7 @@ function buildModelTransformDecls(uses: Record<string, string>, modelTransforms:
     for (const [classKey, props] of Object.entries(modelTransforms)) {
       if (String(useVal).includes(classKey)) {
         const modelEntries = Object.entries(props).filter(
-          ([k]) => k !== "_includes",
+          ([k]) => !k.startsWith('_'),
         );
         if (modelEntries.length) {
           const propsStr = modelEntries
@@ -218,6 +243,16 @@ function buildModelTransformDecls(uses: Record<string, string>, modelTransforms:
         if (props._includes != null) {
           lines.push(
             `  _includes = Object.assign(${String(props._includes).replaceAll(/\bmodel\b/g, varName)}, _includes);`,
+          );
+        }
+        if (props._resourceWrappers != null) {
+          lines.push(
+            `  _resourceWrappers = Object.assign(${String(props._resourceWrappers).replaceAll(/\bmodel\b/g, varName)}, _resourceWrappers);`,
+          );
+        }
+        if (props._wrapperClass != null) {
+          lines.push(
+            `  if (!_wrapperClass) _wrapperClass = ${String(props._wrapperClass).replaceAll(/\bmodel\b/g, varName)};`,
           );
         }
       }

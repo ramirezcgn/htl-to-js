@@ -155,7 +155,7 @@ function processElement(node: any, ctx: WalkerContext): string {
 
   if (node.name === 'sly' && !dir.repeat) {
     const children = dir.resource
-      ? `\${_includes?.[${dir.resource}]?.() ?? ''}`
+      ? `\${_wrapResource(${dir.resource}, _includes?.[${dir.resource}]?.() ?? '', Object.assign({}, _staticResourceWrappers ?? {}, _resourceWrappers))}`
       : walkNodes(node.children, localCtx);
     return applyTest(dir.test, children);
   }
@@ -233,7 +233,7 @@ function processElement(node: any, ctx: WalkerContext): string {
 
 function buildInnerContent(node: any, dir: Directives, ctx: WalkerContext): string {
   if (dir.resource) {
-    return `\${_includes?.[${dir.resource}]?.() ?? ''}`;
+    return `\${_wrapResource(${dir.resource}, _includes?.[${dir.resource}]?.() ?? '', Object.assign({}, _staticResourceWrappers ?? {}, _resourceWrappers))}`;
   }
   if (dir.text) return `\${${dir.text}}`;
   return walkNodes(node.children, ctx);

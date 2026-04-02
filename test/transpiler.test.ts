@@ -1832,3 +1832,289 @@ describe('transpile — sly inside table row', () => {
     expect(html).not.toContain('Y');
   });
 });
+
+// ---------------------------------------------------------------------------
+// transpile — wrapperClass option
+// ---------------------------------------------------------------------------
+
+describe('transpile — wrapperClass', () => {
+  it('auto-derives wrapper class from folder name when true', () => {
+    const src = `<p>hello</p>`;
+    const code = transpile(src, { filename: '/apps/mysite/image/image.html', wrapperClass: true });
+    expect(code).toContain('class="image');
+    const mod: any = {};
+    new Function('module', code)(mod);
+    const fn = Object.values(mod.exports)[0] as Function;
+    const html = fn();
+    expect(html).toBe('<div class="image"><p>hello</p></div>');
+  });
+
+  it('uses custom class string when provided', () => {
+    const src = `<p>content</p>`;
+    const code = transpile(src, { filename: 'layout.html', wrapperClass: 'layout aem-GridColumn aem-GridColumn--default--12' });
+    const mod: any = {};
+    new Function('module', code)(mod);
+    const fn = Object.values(mod.exports)[0] as Function;
+    const html = fn();
+    expect(html).toBe('<div class="layout aem-GridColumn aem-GridColumn--default--12"><p>content</p></div>');
+  });
+
+  it('appends _wrapperClass from runtime when provided', () => {
+    const src = `<p>inner</p>`;
+    const code = transpile(src, { filename: '/apps/mysite/column/column.html', wrapperClass: true });
+    const mod: any = {};
+    new Function('module', code)(mod);
+    const fn = Object.values(mod.exports)[0] as Function;
+    const html = fn({ _wrapperClass: 'aem-GridColumn aem-GridColumn--default--12' });
+    expect(html).toBe('<div class="column aem-GridColumn aem-GridColumn--default--12"><p>inner</p></div>');
+  });
+
+  it('does not add wrapper when wrapperClass is false', () => {
+    const src = `<p>hi</p>`;
+    const code = transpile(src, { filename: 'test.html', wrapperClass: false });
+    const mod: any = {};
+    new Function('module', code)(mod);
+    const fn = Object.values(mod.exports)[0] as Function;
+    const html = fn();
+    expect(html).toBe('<p>hi</p>');
+  });
+
+  it('does not add wrapper by default (backward compatible)', () => {
+    const src = `<p>hi</p>`;
+    const code = transpile(src, { filename: 'test.html' });
+    const mod: any = {};
+    new Function('module', code)(mod);
+    const fn = Object.values(mod.exports)[0] as Function;
+    const html = fn();
+    expect(html).toBe('<p>hi</p>');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// transpile — resourceWrappers option
+// ---------------------------------------------------------------------------
+
+describe('transpile — resourceWrappers', () => {
+  it('wraps resource include when static resourceWrappers match', () => {
+    const src = `<sly data-sly-resource="\${'responsivegrid'}"></sly>`;
+    const code = transpile(src, {
+      filename: 'test.html',
+      resourceWrappers: { responsivegrid: 'aem-Grid aem-Grid--12 aem-Grid--default--12' },
+    });
+    const mod: any = {};
+    new Function('module', code)(mod);
+    const fn = Object.values(mod.exports)[0] as Function;
+    const html = fn({ _includes: { responsivegrid: () => '<div>grid content</div>' } });
+    expect(html).toContain('<div class="aem-Grid aem-Grid--12 aem-Grid--default--12">');
+    expect(html).toContain('<div>grid content</div>');
+    expect(html).toContain('</div>');
+  });
+
+  it('does not wrap when resource key has no matching wrapper', () => {
+    const src = `<sly data-sly-resource="\${'header'}"></sly>`;
+    const code = transpile(src, {
+      filename: 'test.html',
+      resourceWrappers: { responsivegrid: 'aem-Grid aem-Grid--12' },
+    });
+    const mod: any = {};
+    new Function('module', code)(mod);
+    const fn = Object.values(mod.exports)[0] as Function;
+    const html = fn({ _includes: { header: () => '<nav>Nav</nav>' } });
+    expect(html).toBe('<nav>Nav</nav>');
+  });
+
+  it('allows runtime _resourceWrappers to override static ones', () => {
+    const src = `<sly data-sly-resource="\${'grid'}"></sly>`;
+    const code = transpile(src, { filename: 'test.html' });
+    const mod: any = {};
+    new Function('module', code)(mod);
+    const fn = Object.values(mod.exports)[0] as Function;
+    const html = fn({
+      _includes: { grid: () => '<p>G</p>' },
+      _resourceWrappers: { grid: 'custom-grid-class' },
+    });
+    expect(html).toContain('<div class="custom-grid-class">');
+    expect(html).toContain('<p>G</p>');
+  });
+
+  it('wraps resource on non-sly elements too', () => {
+    const src = `<div data-sly-resource="\${'sidebar'}">old</div>`;
+    const code = transpile(src, {
+      filename: 'test.html',
+      resourceWrappers: { sidebar: 'sidebar-wrapper' },
+    });
+    const mod: any = {};
+    new Function('module', code)(mod);
+    const fn = Object.values(mod.exports)[0] as Function;
+    const html = fn({ _includes: { sidebar: () => '<aside>Side</aside>' } });
+    expect(html).toContain('<div>');
+    expect(html).toContain('<div class="sidebar-wrapper">');
+    expect(html).toContain('<aside>Side</aside>');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// transpile — real-world AEM composition: container + responsivegrid + column
+// ---------------------------------------------------------------------------
+
+describe('transpile — AEM container + responsivegrid + column composition', () => {
+  it('composes nested components with wrapperClass, resourceWrappers and _wrapperClass', () => {
+    // ── Container component ──
+    const containerSrc = `<div class="cmp-container"><sly data-sly-resource="\${'responsivegrid'}"></sly></div>`;
+    const containerCode = transpile(containerSrc, {
+      filename: '/apps/mysite/container/container.html',
+      wrapperClass: true,
+      resourceWrappers: { responsivegrid: 'aem-Grid aem-Grid--12 aem-Grid--default--12' },
+    });
+    const containerMod: any = {};
+    new Function('module', containerCode)(containerMod);
+    const createContainer = Object.values(containerMod.exports)[0] as Function;
+
+    // ── Column component ──
+    const columnSrc = `<div class="cmp-column">Sample Text</div>`;
+    const columnCode = transpile(columnSrc, {
+      filename: '/apps/mysite/column/column.html',
+      wrapperClass: true,
+    });
+    const columnMod: any = {};
+    new Function('module', columnCode)(columnMod);
+    const createColumn = Object.values(columnMod.exports)[0] as Function;
+
+    // ── Compose at runtime ──
+    const html = createContainer({
+      _includes: {
+        responsivegrid: () => createColumn({
+          _wrapperClass: 'aem-GridColumn aem-GridColumn--default--12',
+        }),
+      },
+    });
+
+    // Expected structure:
+    // <div class="container">
+    //   <div class="cmp-container">
+    //     <div class="aem-Grid aem-Grid--12 aem-Grid--default--12">
+    //       <div class="column aem-GridColumn aem-GridColumn--default--12">
+    //         <div class="cmp-column">Sample Text</div>
+    //       </div>
+    //     </div>
+    //   </div>
+    // </div>
+    expect(html).toContain('<div class="container">');
+    expect(html).toContain('<div class="cmp-container">');
+    expect(html).toContain('<div class="aem-Grid aem-Grid--12 aem-Grid--default--12">');
+    expect(html).toContain('<div class="column aem-GridColumn aem-GridColumn--default--12">');
+    expect(html).toContain('<div class="cmp-column">Sample Text</div>');
+
+    // Verify nesting order
+    const containerIdx = html.indexOf('class="container"');
+    const cmpContainerIdx = html.indexOf('class="cmp-container"');
+    const gridIdx = html.indexOf('class="aem-Grid');
+    const columnIdx = html.indexOf('class="column aem-GridColumn');
+    const cmpColumnIdx = html.indexOf('class="cmp-column"');
+    expect(containerIdx).toBeLessThan(cmpContainerIdx);
+    expect(cmpContainerIdx).toBeLessThan(gridIdx);
+    expect(gridIdx).toBeLessThan(columnIdx);
+    expect(columnIdx).toBeLessThan(cmpColumnIdx);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// transpile — AEM composition configured entirely via modelTransforms
+// ---------------------------------------------------------------------------
+
+describe('transpile — AEM composition via modelTransforms', () => {
+  const sharedTransforms = {
+    'LayoutContainer': {
+      _resourceWrappers: "{ responsivegrid: { wrapper: 'aem-Grid aem-Grid--12 aem-Grid--default--12', childClass: 'aem-GridColumn aem-GridColumn--default--12' } }",
+    },
+  };
+
+  it('configures resourceWrappers with childClass through modelTransforms in one place', () => {
+    // ── Container component (uses LayoutContainer model) ──
+    const containerSrc = `<div data-sly-use.container="com.example.LayoutContainer" class="cmp-container"><sly data-sly-resource="\${'responsivegrid'}"></sly></div>`;
+    const containerCode = transpile(containerSrc, {
+      filename: '/apps/mysite/container/container.html',
+      wrapperClass: true,
+      modelTransforms: sharedTransforms,
+    });
+    const containerMod: any = {};
+    new Function('module', containerCode)(containerMod);
+    const createContainer = Object.values(containerMod.exports)[0] as Function;
+
+    // ── Column component (no special config needed) ──
+    const columnSrc = `<div class="cmp-column">Sample Text</div>`;
+    const columnCode = transpile(columnSrc, {
+      filename: '/apps/mysite/column/column.html',
+      wrapperClass: true,
+    });
+    const columnMod: any = {};
+    new Function('module', columnCode)(columnMod);
+    const createColumn = Object.values(columnMod.exports)[0] as Function;
+
+    // ── Compose at runtime — no manual _wrapperClass needed ──
+    const html = createContainer({
+      _includes: {
+        responsivegrid: () => createColumn(),
+      },
+    });
+
+    // Expected structure:
+    // <div class="container">
+    //   <div class="cmp-container">
+    //     <div class="aem-Grid aem-Grid--12 aem-Grid--default--12">
+    //       <div class="column aem-GridColumn aem-GridColumn--default--12">
+    //         <div class="cmp-column">Sample Text</div>
+    //       </div>
+    //     </div>
+    //   </div>
+    // </div>
+    expect(html).toContain('<div class="container">');
+    expect(html).toContain('<div class="cmp-container">');
+    expect(html).toContain('<div class="aem-Grid aem-Grid--12 aem-Grid--default--12">');
+    expect(html).toContain('<div class="column aem-GridColumn aem-GridColumn--default--12">');
+    expect(html).toContain('<div class="cmp-column">Sample Text</div>');
+
+    // Verify nesting order
+    const containerIdx = html.indexOf('class="container"');
+    const cmpContainerIdx = html.indexOf('class="cmp-container"');
+    const gridIdx = html.indexOf('class="aem-Grid');
+    const columnIdx = html.indexOf('class="column aem-GridColumn');
+    const cmpColumnIdx = html.indexOf('class="cmp-column"');
+    expect(containerIdx).toBeLessThan(cmpContainerIdx);
+    expect(cmpContainerIdx).toBeLessThan(gridIdx);
+    expect(gridIdx).toBeLessThan(columnIdx);
+    expect(columnIdx).toBeLessThan(cmpColumnIdx);
+  });
+
+  it('childClass injects class when child has no existing class', () => {
+    const src = `<div data-sly-use.grid="com.example.LayoutContainer"><sly data-sly-resource="\${'responsivegrid'}"></sly></div>`;
+    const code = transpile(src, {
+      filename: 'test.html',
+      modelTransforms: sharedTransforms,
+    });
+    const mod: any = {};
+    new Function('module', code)(mod);
+    const fn = Object.values(mod.exports)[0] as Function;
+    const html = fn({ _includes: { responsivegrid: () => '<span>bare</span>' } });
+    expect(html).toContain('<div class="aem-Grid aem-Grid--12 aem-Grid--default--12">');
+    expect(html).toContain('<span class="aem-GridColumn aem-GridColumn--default--12">bare</span>');
+  });
+
+  it('runtime _resourceWrappers override modelTransform defaults', () => {
+    const src = `<div data-sly-use.c="com.example.LayoutContainer"><sly data-sly-resource="\${'responsivegrid'}"></sly></div>`;
+    const code = transpile(src, {
+      filename: 'test.html',
+      modelTransforms: sharedTransforms,
+    });
+    const mod: any = {};
+    new Function('module', code)(mod);
+    const fn = Object.values(mod.exports)[0] as Function;
+    const html = fn({
+      _includes: { responsivegrid: () => '<p>hi</p>' },
+      _resourceWrappers: { responsivegrid: 'custom-override' },
+    });
+    // Runtime string override replaces the object config entirely
+    expect(html).toContain('<div class="custom-override">');
+    expect(html).toContain('<p>hi</p>');
+  });
+});

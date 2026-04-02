@@ -1,6 +1,6 @@
 import { parseDirectives } from './directives';
 import type { Directives, SetDecl } from './directives';
-import { convertExpr, convertAttrValue, convertTextContent } from './expr';
+import { convertExpr, convertAttrValue, convertTextContent, extractExprs } from './expr';
 
 const VOID_ELEMENTS = new Set([
   'area',
@@ -342,7 +342,13 @@ function buildAttrs(
   let result = Object.entries(attrsMap)
     .filter(([key]) => !dir.skip.has(key))
     .filter(([key]) => !omitAttrs.some((pattern) => pattern.test(key)))
-    .map(([key, val]) => ` ${key}="${convertAttrValue(val)}"`)
+    .map(([key, val]) => {
+      const exprs = extractExprs(val);
+      if (exprs.length === 1 && exprs[0].index === 0 && exprs[0].end === val.length) {
+        return `\${_htlDynAttr('${key}', ${convertExpr(exprs[0].expr)})}`;
+      }
+      return ` ${key}="${convertAttrValue(val)}"`;
+    })
     .join('');
 
   if (dir.dynamicAttrs?.length) {

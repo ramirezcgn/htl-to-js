@@ -1097,13 +1097,24 @@ describe('transpile — _htlAttr edge cases', () => {
     expect(html).toContain('&quot;');
   });
 
-  it('renders empty string for null attribute values', () => {
+  it('omits attribute when value is null', () => {
     const src = `<div title="\${model.title}">content</div>`;
     const code = transpile(src, { filename: 'test.html' });
     const mod: any = {};
     new Function('module', code)(mod);
     const fn = Object.values(mod.exports)[0] as Function;
     const html = fn({ model: { title: null } });
+    expect(html).not.toContain('title');
+    expect(html).toBe('<div>content</div>');
+  });
+
+  it('keeps attribute when value is empty string', () => {
+    const src = `<div title="\${model.title}">content</div>`;
+    const code = transpile(src, { filename: 'test.html' });
+    const mod: any = {};
+    new Function('module', code)(mod);
+    const fn = Object.values(mod.exports)[0] as Function;
+    const html = fn({ model: { title: '' } });
     expect(html).toContain('title=""');
   });
 });

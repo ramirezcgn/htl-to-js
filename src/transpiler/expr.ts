@@ -16,7 +16,7 @@ export function convertExpr(raw: string): string {
 
   const i18nMatch = /^\s*(['"])([^'"]*?)\1\s*@\s*(?:.*,\s*)?i18n\b/.exec(inner);
 
-  inner = inner.replace( // NOSONAR -- intentional single match (anchored at ^)
+  inner = inner.replace(
     /^([\s\S]+?)\s*@\s*join\s*=\s*(?:'([^']*)'|"([^"]*)")/,
     (_: string, expr: string, sepSingle: string, sepDouble: string) => {
       const sep = sepSingle ?? sepDouble;
@@ -27,17 +27,28 @@ export function convertExpr(raw: string): string {
   inner = inner.replaceAll(
     /['"]([^'"]*)['"]\s*@\s*format=\[([^\]]*)\]/g,
     (_: string, tmpl: string, args: string) => {
-      const argList = args.split(',').map(a => a.trim());
+      const argList = args.split(',').map((a) => a.trim());
       const parts = tmpl.split(/\{(\d+)\}/);
-      return parts
-        .map((part, i) => (i % 2 === 1 ? argList[Number.parseInt(part)] || "''" : part ? `'${part}'` : null))
-        .filter(Boolean)
-        .join(' + ') || "''";
+      return (
+        parts
+          .map((part, i) =>
+            i % 2 === 1
+              ? argList[Number.parseInt(part)] || "''"
+              : part
+                ? `'${part}'`
+                : null
+          )
+          .filter(Boolean)
+          .join(' + ') || "''"
+      );
     }
   );
 
   const arrays: string[] = [];
-  inner = inner.replaceAll(/\[[^\]]*\]/g, m => { arrays.push(m); return `__ARR${arrays.length - 1}__`; });
+  inner = inner.replaceAll(/\[[^\]]*\]/g, (m) => {
+    arrays.push(m);
+    return `__ARR${arrays.length - 1}__`;
+  });
 
   const OPT_VAL = String.raw`(?:'[^']*'|"[^"]*"|__ARR\d+__|(?:[^,@}'"\n]|'[^']*'|"[^"]*")+)`;
   inner = inner
@@ -50,13 +61,20 @@ export function convertExpr(raw: string): string {
     .replaceAll(/(\w+)\.jcr:(\w+)/g, "$1?.['jcr:$2']")
     .trim();
 
-  arrays.forEach((arr, i) => { inner = inner.replace(`__ARR${i}__`, arr); });
+  arrays.forEach((arr, i) => {
+    inner = inner.replace(`__ARR${i}__`, arr);
+  });
 
   inner = inner.replaceAll(/(\w|\])(?<!\?)\[/g, '$1?.[');
-  inner = inner.replaceAll(/(\w|\])\.(?=([\w$]))/g, (m, a, b) => /\d/.test(a) && /\d/.test(b) ? m : `${a}?.`);
-  inner = inner.replaceAll(/([\w$.?[\]]+)\s+in\s+([\w$.?[\]]+)/g, (_match: string, left: string, right: string) => {
-    return `(${right}) && (${left} in ${right})`;
-  });
+  inner = inner.replaceAll(/(\w|\])\.(?=([\w$]))/g, (m, a, b) =>
+    /\d/.test(a) && /\d/.test(b) ? m : `${a}?.`
+  );
+  inner = inner.replaceAll(
+    /([\w$.?[\]]+)\s+in\s+([\w$.?[\]]+)/g,
+    (_match: string, left: string, right: string) => {
+      return `(${right}) && (${left} in ${right})`;
+    }
+  );
 
   inner = inner.replaceAll(/(?<![?.])\b(class|for)\b/g, '_$1');
   if (i18nMatch) {
@@ -86,7 +104,10 @@ export function extractExprs(str: string): ExprMatch[] {
     let j = start;
     for (; j < str.length; j++) {
       if (str[j] === '{') depth++;
-      else if (str[j] === '}') { depth--; if (depth === 0) break; }
+      else if (str[j] === '}') {
+        depth--;
+        if (depth === 0) break;
+      }
     }
     if (depth === 0) {
       results.push({ index: start, expr: str.slice(start + 2, j), end: j + 1 });

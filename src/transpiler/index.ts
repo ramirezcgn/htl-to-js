@@ -8,12 +8,12 @@ import path from 'node:path';
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
 const DEFAULT_OMIT_ATTRS = [
-  /^data-cmp-data-layer$/,    // analytics data layer JSON
-  /^data-placeholder-text$/,  // author mode placeholder
-  /^data-panelcontainer$/,    // author mode panel container
-  /^data-component-name$/,    // AEM component tracking
-  /^data-region-id$/,         // analytics region tracking
-  /^data-emptytext$/,         // author mode empty text
+  /^data-cmp-data-layer$/, // analytics data layer JSON
+  /^data-placeholder-text$/, // author mode placeholder
+  /^data-panelcontainer$/, // author mode panel container
+  /^data-component-name$/, // AEM component tracking
+  /^data-region-id$/, // analytics region tracking
+  /^data-emptytext$/, // author mode empty text
 ];
 
 const AEM_IMPLICITS: Record<string, string> = {
@@ -31,7 +31,8 @@ const AEM_IMPLICITS: Record<string, string> = {
   _i18n: '{}',
   _wrapperClass: "''",
   _resourceWrappers: '{}',
-  request: '{ requestPathInfo: { selectorString: \'\', suffix: \'\', resourcePath: \'\'  }, contextPath: \'\'  }',
+  request:
+    "{ requestPathInfo: { selectorString: '', suffix: '', resourcePath: ''  }, contextPath: ''  }",
 };
 
 interface TranspileOptions {
@@ -39,7 +40,14 @@ interface TranspileOptions {
   omitAttrs?: RegExp[];
   modelTransforms?: Record<string, Record<string, string>>;
   wrapperClass?: string | boolean;
-  resourceWrappers?: Record<string, string>;
+  resourceWrappers?: Record<
+    string,
+    string | { wrapper?: string; childClass?: string }
+  >;
+  fileOverrides?: Record<
+    string,
+    string | { expression: string; resourceType: string }
+  >;
 }
 
 interface ParamDecl {
@@ -61,9 +69,23 @@ interface TemplateInfo {
  * @param options
  * @returns A valid CJS module source string
  */
-export function transpile(htlSource: string, { filename = 'component', omitAttrs = DEFAULT_OMIT_ATTRS, modelTransforms = {}, wrapperClass, resourceWrappers }: TranspileOptions = {}): string {
-  const expandedSource = htlSource.replaceAll(/<sly\b([^>]*?)\/>/g, '<sly$1></sly>');
-  const { normalized: normalizedSource, restoreMap } = normalizeSetVarCasing(expandedSource);
+export function transpile(
+  htlSource: string,
+  {
+    filename = 'component',
+    omitAttrs = DEFAULT_OMIT_ATTRS,
+    modelTransforms = {},
+    wrapperClass,
+    resourceWrappers,
+    fileOverrides = {},
+  }: TranspileOptions = {}
+): string {
+  const expandedSource = htlSource.replaceAll(
+    /<sly\b([^>]*?)\/>/g,
+    '<sly$1></sly>'
+  );
+  const { normalized: normalizedSource, restoreMap } =
+    normalizeSetVarCasing(expandedSource);
   const document = parseDocument(normalizedSource);
 
   const originalTemplateNames = extractOriginalTemplateNames(normalizedSource);
@@ -71,11 +93,38 @@ export function transpile(htlSource: string, { filename = 'component', omitAttrs
 
   const sourceDir = path.dirname(path.resolve(filename));
 
+  const serializedFileOverrides: Record<string, string> = {};
+  const fileOverrideResourceTypes: Record<string, string> = {};
+  for (const [key, val] of Object.entries(fileOverrides)) {
+    if (typeof val === 'string') {
+      serializedFileOverrides[key] = val;
+    } else {
+      serializedFileOverrides[key] = val.expression;
+      if (val.resourceType) fileOverrideResourceTypes[key] = val.resourceType;
+    }
+  }
+
   let body: string;
   if (templates.length > 0) {
-    body = transpileNamedTemplates(templates, omitAttrs, sourceDir, modelTransforms);
+    body = transpileNamedTemplates(
+      templates,
+      omitAttrs,
+      sourceDir,
+      modelTransforms,
+      serializedFileOverrides,
+      fileOverrideResourceTypes
+    );
   } else {
-    body = transpileSingleTemplate(document, filename, omitAttrs, sourceDir, modelTransforms, wrapperClass);
+    body = transpileSingleTemplate(
+      document,
+      filename,
+      omitAttrs,
+      sourceDir,
+      modelTransforms,
+      wrapperClass,
+      serializedFileOverrides,
+      fileOverrideResourceTypes
+    );
   }
 
   const banner = `// AUTO-GENERATED from ${path.basename(filename)} — DO NOT EDIT\n\n`;
@@ -83,14 +132,14 @@ export function transpile(htlSource: string, { filename = 'component', omitAttrs
     `const _htlAttr = (v) => v == null ? '' : (typeof v === 'object' ? JSON.stringify(v).replace(/"/g, '&quot;') : String(v).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'));`,
     `const _htlDynAttr = (name, val) => { if (val == null || val === false) return ''; if (val === true) return ' ' + name; return ' ' + name + '="' + _htlAttr(val) + '"'; };`,
     `const _htlSpreadAttrs = (obj) => { if (!obj || typeof obj !== 'object') return ''; return Object.entries(obj).map(([k, v]) => _htlDynAttr(k, v)).join(''); };`,
-    `const _wrapResource = (key, html, wrappers) => {`,
-    `  const cfg = wrappers?.[key]; if (!cfg) return html;`,
+    `const _wrapResource = (key, html, wrappers, resourceType) => {`,
+    `  const cfg = wrappers?.[key] ?? (resourceType ? wrappers?.[resourceType] : undefined); if (!cfg) return html;`,
     `  if (typeof cfg === 'string') return '<div class="' + cfg + '">' + html + '</div>';`,
     `  let r = html;`,
     `  if (cfg.childClass) {`,
     `    let d = false;`,
     String.raw`    r = r.replace(/^(\s*<\w+\b[^>]*?\bclass=")([^"]*)/, (m, p, v) => { d = true; return p + v + ' ' + cfg.childClass; });`,
-    `    if (!d) r = r.replace(/^(\\s*<\\w+)/, '$1 class="' + cfg.childClass + '"');`,
+    String.raw`    if (!d) r = r.replace(/^(\s*<\w+)/, '$1 class="' + cfg.childClass + '"');`,
     `  }`,
     `  if (cfg.wrapper) r = '<div class="' + cfg.wrapper + '">' + r + '</div>';`,
     `  return r;`,
@@ -99,28 +148,44 @@ export function transpile(htlSource: string, { filename = 'component', omitAttrs
   ].join('\n');
 
   const resourceWrapperDecl = `const _staticResourceWrappers = ${JSON.stringify(resourceWrappers ?? {})};\n`;
-  return banner + helpers + resourceWrapperDecl + restoreVarCasing(body, restoreMap);
+  return (
+    banner + helpers + resourceWrapperDecl + restoreVarCasing(body, restoreMap)
+  );
 }
 
 // ---------------------------------------------------------------------------
 // Named template mode
 // ---------------------------------------------------------------------------
 
-function findNamedTemplates(document: any, originalNames: Record<string, string> = {}): TemplateInfo[] {
+function findNamedTemplates(
+  document: any,
+  originalNames: Record<string, string> = {}
+): TemplateInfo[] {
   const templates: TemplateInfo[] = [];
   collectTemplates(document.children, templates, originalNames);
   return templates;
 }
 
-function collectTemplates(nodes: any[], acc: TemplateInfo[], originalNames: Record<string, string> = {}): void {
+function collectTemplates(
+  nodes: any[],
+  acc: TemplateInfo[],
+  originalNames: Record<string, string> = {}
+): void {
   for (const node of nodes) {
     if (node.attribs) {
-      const tmplKey = Object.keys(node.attribs).find(k => k.startsWith('data-sly-template.'));
+      const tmplKey = Object.keys(node.attribs).find((k) =>
+        k.startsWith('data-sly-template.')
+      );
       if (tmplKey) {
         const lowercasedName = tmplKey.replace('data-sly-template.', '');
         const name = originalNames[lowercasedName] || lowercasedName;
         const atMatch = node.attribs[tmplKey].match(/@\s*([\w,\s]+)/);
-        const params = atMatch ? atMatch[1].split(',').map((s: string) => s.trim()).filter(Boolean) : [];
+        const params = atMatch
+          ? atMatch[1]
+              .split(',')
+              .map((s: string) => s.trim())
+              .filter(Boolean)
+          : [];
         acc.push({ name, params, node });
         continue;
       }
@@ -129,13 +194,25 @@ function collectTemplates(nodes: any[], acc: TemplateInfo[], originalNames: Reco
   }
 }
 
-function transpileNamedTemplates(templates: TemplateInfo[], omitAttrs: RegExp[], sourceDir: string, modelTransforms: Record<string, Record<string, string>> = {}): string {
+function transpileNamedTemplates(
+  templates: TemplateInfo[],
+  omitAttrs: RegExp[],
+  sourceDir: string,
+  modelTransforms: Record<string, Record<string, string>> = {},
+  fileOverrides: Record<string, string> = {},
+  fileOverrideResourceTypes: Record<string, string> = {}
+): string {
   const localTemplates: Record<string, string> = Object.fromEntries(
     templates.map(({ name }) => [name, toPascalFnName('create', name)])
   );
   const fnNames: string[] = [];
   const parts = templates.map(({ name, params, node }) => {
-    const ctx = createContext(omitAttrs, sourceDir);
+    const ctx = createContext(
+      omitAttrs,
+      sourceDir,
+      fileOverrides,
+      fileOverrideResourceTypes
+    );
     Object.assign(ctx.localTemplates, localTemplates);
     for (const n of Object.keys(localTemplates)) ctx.definedVars.add(n);
     const templateDir = parseDirectives(node.attribs || {}, sourceDir);
@@ -152,17 +229,29 @@ function transpileNamedTemplates(templates: TemplateInfo[], omitAttrs: RegExp[],
     }
     const setDecls = buildSetDecls(ctx.sets);
     for (const implicitName of Object.keys(AEM_IMPLICITS)) {
-      if (!allParams.includes(implicitName) && (body.includes(implicitName) || setDecls.includes(implicitName))) {
+      if (
+        !allParams.includes(implicitName) &&
+        (body.includes(implicitName) || setDecls.includes(implicitName))
+      ) {
         allParams.push(implicitName);
       }
     }
-    const tempParams: ParamDecl[] = allParams.map(p => ({ name: p, default: '{}' }));
-    addFreeVarParams(tempParams, ctx);
-    for (const p of tempParams) if (!allParams.includes(p.name)) allParams.push(p.name);
-    const paramStr = buildParamStr(allParams.map(p => ({
+    const tempParams: ParamDecl[] = allParams.map((p) => ({
       name: p,
-      default: AEM_IMPLICITS[p] ?? ctx.useDefaults[p] ?? (params.includes(p) ? "''" : '{}'),
-    })));
+      default: '{}',
+    }));
+    addFreeVarParams(tempParams, ctx);
+    for (const p of tempParams)
+      if (!allParams.includes(p.name)) allParams.push(p.name);
+    const paramStr = buildParamStr(
+      allParams.map((p) => ({
+        name: p,
+        default:
+          AEM_IMPLICITS[p] ??
+          ctx.useDefaults[p] ??
+          (params.includes(p) ? "''" : '{}'),
+      }))
+    );
     const transformDecls = buildModelTransformDecls(ctx.uses, modelTransforms);
     return buildFunctionBody(fnName, paramStr, setDecls, body, transformDecls);
   });
@@ -174,8 +263,22 @@ function transpileNamedTemplates(templates: TemplateInfo[], omitAttrs: RegExp[],
 // Single template mode
 // ---------------------------------------------------------------------------
 
-function transpileSingleTemplate(document: any, filename: string, omitAttrs: RegExp[], sourceDir: string, modelTransforms: Record<string, Record<string, string>> = {}, wrapperClass?: string | boolean): string {
-  const ctx = createContext(omitAttrs, sourceDir);
+function transpileSingleTemplate(
+  document: any,
+  filename: string,
+  omitAttrs: RegExp[],
+  sourceDir: string,
+  modelTransforms: Record<string, Record<string, string>> = {},
+  wrapperClass?: string | boolean,
+  fileOverrides: Record<string, string> = {},
+  fileOverrideResourceTypes: Record<string, string> = {}
+): string {
+  const ctx = createContext(
+    omitAttrs,
+    sourceDir,
+    fileOverrides,
+    fileOverrideResourceTypes
+  );
   let body = walkNodes(document.children, ctx);
   const fnName = toPascalFnName('create', deriveBaseName(filename));
 
@@ -186,7 +289,10 @@ function transpileSingleTemplate(document: any, filename: string, omitAttrs: Reg
     body = `<div class="${wrapperClass}\${_wrapperClass ? ' ' + _wrapperClass : ''}">${body.trim()}</div>`;
   }
 
-  const params: ParamDecl[] = Object.keys(ctx.uses).map(name => ({ name, default: ctx.useDefaults[name] ?? '{}' }));
+  const params: ParamDecl[] = Object.keys(ctx.uses).map((name) => ({
+    name,
+    default: ctx.useDefaults[name] ?? '{}',
+  }));
   const setDecls = buildSetDecls(ctx.sets);
 
   for (const [name, defaultVal] of Object.entries(AEM_IMPLICITS)) {
@@ -199,21 +305,27 @@ function transpileSingleTemplate(document: any, filename: string, omitAttrs: Reg
 
   const transformDecls = buildModelTransformDecls(ctx.uses, modelTransforms);
   const paramStr = buildParamStr(params);
-  return buildFunctionBody(fnName, paramStr, setDecls, body, transformDecls) + `\nmodule.exports = { ${fnName} };`;
+  return (
+    buildFunctionBody(fnName, paramStr, setDecls, body, transformDecls) +
+    `\nmodule.exports = { ${fnName} };`
+  );
 }
 
 // ---------------------------------------------------------------------------
 // Code generation helpers
 // ---------------------------------------------------------------------------
 
-function buildFunctionBody(fnName: string, paramStr: string, setDecls: string, body: string, transformDecls = ''): string {
+function buildFunctionBody(
+  fnName: string,
+  paramStr: string,
+  setDecls: string,
+  body: string,
+  transformDecls = ''
+): string {
   const lines = [`const ${fnName} = (${paramStr}) => {`];
   if (transformDecls) lines.push(transformDecls);
   if (setDecls) lines.push(setDecls);
-  lines.push(
-    `  return /* html */\`${body.trim()}\`;`,
-    '};',
-  );
+  lines.push(`  return /* html */\`${body.trim()}\`;`, '};');
   return lines.join('\n');
 }
 
@@ -221,38 +333,31 @@ function buildFunctionBody(fnName: string, paramStr: string, setDecls: string, b
  * Builds assignment lines that merge computed properties into model variables,
  * based on modelTransforms config.
  */
-function buildModelTransformDecls(uses: Record<string, string>, modelTransforms: Record<string, Record<string, string>>): string {
+function buildModelTransformDecls(
+  uses: Record<string, string>,
+  modelTransforms: Record<string, Record<string, string>>
+): string {
   if (!Object.keys(modelTransforms).length) return '';
   const lines: string[] = [];
   for (const [varName, useVal] of Object.entries(uses)) {
     for (const [classKey, props] of Object.entries(modelTransforms)) {
       if (String(useVal).includes(classKey)) {
         const modelEntries = Object.entries(props).filter(
-          ([k]) => !k.startsWith('_'),
+          ([k]) => !k.startsWith('_')
         );
         if (modelEntries.length) {
           const propsStr = modelEntries
             .map(
-              ([k, v]) => `${k}: ${String(v).replaceAll(/\bmodel\b/g, varName)}`,
+              ([k, v]) => `${k}: ${String(v).replaceAll(/\bmodel\b/g, varName)}`
             )
-            .join(", ");
+            .join(', ');
           lines.push(
-            `  ${varName} = Object.assign({ ${propsStr} }, ${varName});`,
+            `  ${varName} = Object.assign({ ${propsStr} }, ${varName});`
           );
         }
         if (props._includes != null) {
           lines.push(
-            `  _includes = Object.assign(${String(props._includes).replaceAll(/\bmodel\b/g, varName)}, _includes);`,
-          );
-        }
-        if (props._resourceWrappers != null) {
-          lines.push(
-            `  _resourceWrappers = Object.assign(${String(props._resourceWrappers).replaceAll(/\bmodel\b/g, varName)}, _resourceWrappers);`,
-          );
-        }
-        if (props._wrapperClass != null) {
-          lines.push(
-            `  if (!_wrapperClass) _wrapperClass = ${String(props._wrapperClass).replaceAll(/\bmodel\b/g, varName)};`,
+            `  _includes = Object.assign(${String(props._includes).replaceAll(/\bmodel\b/g, varName)}, _includes);`
           );
         }
       }
@@ -272,14 +377,61 @@ function extractOriginalTemplateNames(source: string): Record<string, string> {
 const JS_RESERVED = new Set(['class', 'for']);
 
 const JS_BUILTINS = new Set([
-  'true', 'false', 'null', 'undefined', 'NaN', 'Infinity',
-  'typeof', 'instanceof', 'in', 'of', 'new', 'delete', 'void',
-  'this', 'super', 'class', 'const', 'let', 'var', 'function',
-  'return', 'if', 'else', 'for', 'while', 'do', 'switch', 'case',
-  'break', 'continue', 'default', 'throw', 'try', 'catch', 'finally',
-  'import', 'export', 'async', 'await', 'yield', 'static', 'with',
-  'Math', 'JSON', 'Array', 'Object', 'String', 'Number', 'Boolean',
-  'Date', 'require', 'module', 'console', 'parseInt', 'parseFloat',
+  'true',
+  'false',
+  'null',
+  'undefined',
+  'NaN',
+  'Infinity',
+  'typeof',
+  'instanceof',
+  'in',
+  'of',
+  'new',
+  'delete',
+  'void',
+  'this',
+  'super',
+  'class',
+  'const',
+  'let',
+  'var',
+  'function',
+  'return',
+  'if',
+  'else',
+  'for',
+  'while',
+  'do',
+  'switch',
+  'case',
+  'break',
+  'continue',
+  'default',
+  'throw',
+  'try',
+  'catch',
+  'finally',
+  'import',
+  'export',
+  'async',
+  'await',
+  'yield',
+  'static',
+  'with',
+  'Math',
+  'JSON',
+  'Array',
+  'Object',
+  'String',
+  'Number',
+  'Boolean',
+  'Date',
+  'require',
+  'module',
+  'console',
+  'parseInt',
+  'parseFloat',
 ]);
 
 /**
@@ -289,12 +441,12 @@ const JS_BUILTINS = new Set([
  */
 function addFreeVarParams(params: ParamDecl[], ctx: WalkerContext): void {
   const known = new Set([
-    ...params.map(p => p.name),
+    ...params.map((p) => p.name),
     ...Object.keys(AEM_IMPLICITS),
     ...Object.keys(ctx.fileUse || {}),
     ...(ctx.definedVars || []),
   ]);
-  for (const ref of (ctx.refs || [])) {
+  for (const ref of ctx.refs || []) {
     if (JS_BUILTINS.has(ref) || known.has(ref) || ref.startsWith('_')) continue;
     params.push({ name: ref, default: '{}' });
     known.add(ref);
@@ -303,10 +455,14 @@ function addFreeVarParams(params: ParamDecl[], ctx: WalkerContext): void {
 
 function buildParamStr(params: ParamDecl[]): string {
   if (!params.length) return '';
-  const inner = params.map(p => {
-    const safe = JS_RESERVED.has(p.name) ? `_${p.name}` : p.name;
-    return safe === p.name ? `${p.name} = ${p.default}` : `${p.name}: ${safe} = ${p.default}`;
-  }).join(', ');
+  const inner = params
+    .map((p) => {
+      const safe = JS_RESERVED.has(p.name) ? `_${p.name}` : p.name;
+      return safe === p.name
+        ? `${p.name} = ${p.default}`
+        : `${p.name}: ${safe} = ${p.default}`;
+    })
+    .join(', ');
   return `{ ${inner} } = {}`;
 }
 
@@ -314,14 +470,16 @@ function buildSetDecls(sets: SetDecl[]): string {
   if (!sets.length) return '';
   const seen = new Set<string>();
   return sets
-    .filter(s => {
+    .filter((s) => {
       if (seen.has(s.name)) return false;
       seen.add(s.name);
       return true;
     })
-    .map(s => {
+    .map((s) => {
       const safe = JS_RESERVED.has(s.name) ? `_${s.name}` : s.name;
-      return s.raw ? `  const ${safe} = ${s.expr};` : `  const ${safe} = \`${s.expr}\`;`;
+      return s.raw
+        ? `  const ${safe} = ${s.expr};`
+        : `  const ${safe} = \`${s.expr}\`;`;
     })
     .join('\n');
 }
@@ -333,36 +491,62 @@ function deriveBaseName(filename: string): string {
 function toPascalFnName(prefix: string, name: string): string {
   const pascal = name
     .replaceAll(/[-_](\w)/g, (_: string, c: string) => c.toUpperCase())
-    .replace(/^\w/, c => c.toUpperCase());
+    .replace(/^\w/, (c) => c.toUpperCase());
   return prefix + pascal;
 }
 
-function normalizeSetVarCasing(source: string): { normalized: string; restoreMap: Record<string, string> } {
+function normalizeSetVarCasing(source: string): {
+  normalized: string;
+  restoreMap: Record<string, string>;
+} {
   const restoreMap: Record<string, string> = {};
 
-  const DIRECTIVES = ['data-sly-set', 'data-sly-use', 'data-sly-repeat', 'data-sly-list', 'data-sly-test'];
+  const DIRECTIVES = [
+    'data-sly-set',
+    'data-sly-use',
+    'data-sly-repeat',
+    'data-sly-list',
+    'data-sly-test',
+  ];
   for (const dir of DIRECTIVES) {
-    for (const m of source.matchAll(new RegExp(String.raw`${dir}\.([A-Za-z_]\w*)`, 'g'))) {
+    for (const m of source.matchAll(
+      new RegExp(String.raw`${dir}\.([A-Za-z_]\w*)`, 'g')
+    )) {
       if (m[1] !== m[1].toLowerCase()) restoreMap[m[1].toLowerCase()] = m[1];
     }
   }
 
-  if (!Object.keys(restoreMap).length) return { normalized: source, restoreMap };
+  if (!Object.keys(restoreMap).length)
+    return { normalized: source, restoreMap };
 
-  const directivesPattern = DIRECTIVES.map(d => d.replaceAll('-', String.raw`\-`)).join('|');
+  const directivesPattern = DIRECTIVES.map((d) =>
+    d.replaceAll('-', String.raw`\-`)
+  ).join('|');
   let result = source;
   for (const [lower, name] of Object.entries(restoreMap)) {
-    result = result.replaceAll(new RegExp(String.raw`((?:${directivesPattern})\.)${name}\b`, 'g'), `$1${lower}`);
-    result = result.replaceAll(new RegExp(String.raw`(?<!\.)\b${name}\b`, 'g'), lower);
+    result = result.replaceAll(
+      new RegExp(String.raw`((?:${directivesPattern})\.)${name}\b`, 'g'),
+      `$1${lower}`
+    );
+    result = result.replaceAll(
+      new RegExp(String.raw`(?<!\.)\b${name}\b`, 'g'),
+      lower
+    );
   }
   return { normalized: result, restoreMap };
 }
 
-function restoreVarCasing(js: string, restoreMap: Record<string, string>): string {
+function restoreVarCasing(
+  js: string,
+  restoreMap: Record<string, string>
+): string {
   if (!Object.keys(restoreMap).length) return js;
   let result = js;
   for (const [lower, original] of Object.entries(restoreMap)) {
-    result = result.replaceAll(new RegExp(String.raw`(?<!\.)\b${lower}\b`, 'g'), original);
+    result = result.replaceAll(
+      new RegExp(String.raw`(?<!\.)\b${lower}\b`, 'g'),
+      original
+    );
   }
   return result;
 }

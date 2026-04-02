@@ -1,5 +1,9 @@
 import { transpile } from '../src/transpiler/index';
-import { convertExpr, convertAttrValue, convertTextContent } from '../src/transpiler/expr';
+import {
+  convertExpr,
+  convertAttrValue,
+  convertTextContent,
+} from '../src/transpiler/expr';
 
 // ---------------------------------------------------------------------------
 // expr.js unit tests
@@ -11,7 +15,9 @@ describe('convertExpr', () => {
   });
 
   it('wraps @ i18n string in dictionary lookup', () => {
-    expect(convertExpr("'Learn more' @ i18n")).toBe("_i18n?.['Learn more'] ?? 'Learn more'");
+    expect(convertExpr("'Learn more' @ i18n")).toBe(
+      "_i18n?.['Learn more'] ?? 'Learn more'"
+    );
   });
 
   it('strips ${ } wrapper', () => {
@@ -19,37 +25,53 @@ describe('convertExpr', () => {
   });
 
   it('converts .size to .length', () => {
-    expect(convertExpr('accordion.items.size > 0')).toBe('accordion?.items?.length > 0');
+    expect(convertExpr('accordion.items.size > 0')).toBe(
+      'accordion?.items?.length > 0'
+    );
   });
 
   it('converts jcr: property access', () => {
-    expect(convertExpr('component.properties.jcr:title')).toBe("component?.properties?.['jcr:title']");
+    expect(convertExpr('component.properties.jcr:title')).toBe(
+      "component?.properties?.['jcr:title']"
+    );
   });
 
   it('handles ternary expressions', () => {
-    expect(convertExpr("model.titleSize || 'h2'")).toBe("model?.titleSize || 'h2'");
+    expect(convertExpr("model.titleSize || 'h2'")).toBe(
+      "model?.titleSize || 'h2'"
+    );
   });
 
   it('converts @ format=[...] to JS concatenation', () => {
-    expect(convertExpr("'{0}/{1}' @ format=[model.tagUrl, tag.name]")).toBe("model?.tagUrl + '/' + tag?.name");
+    expect(convertExpr("'{0}/{1}' @ format=[model.tagUrl, tag.name]")).toBe(
+      "model?.tagUrl + '/' + tag?.name"
+    );
   });
 
   it('converts @ format with single placeholder', () => {
-    expect(convertExpr("'prefix-{0}' @ format=[model.id]")).toBe("'prefix-' + model?.id");
+    expect(convertExpr("'prefix-{0}' @ format=[model.id]")).toBe(
+      "'prefix-' + model?.id"
+    );
   });
 });
 
 describe('convertAttrValue', () => {
   it('converts single expression in attribute', () => {
-    expect(convertAttrValue('${accordion.id}')).toBe("${_htlAttr(accordion?.id)}");
+    expect(convertAttrValue('${accordion.id}')).toBe(
+      '${_htlAttr(accordion?.id)}'
+    );
   });
 
   it('converts mixed literal + expression', () => {
-    expect(convertAttrValue('cmp-accordion ${properties.theme}')).toBe("cmp-accordion ${_htlAttr(properties?.theme)}");
+    expect(convertAttrValue('cmp-accordion ${properties.theme}')).toBe(
+      'cmp-accordion ${_htlAttr(properties?.theme)}'
+    );
   });
 
   it('strips @ context from attribute expression', () => {
-    expect(convertAttrValue("${model.desc @ context='html'}")).toBe("${_htlAttr(model?.desc)}");
+    expect(convertAttrValue("${model.desc @ context='html'}")).toBe(
+      '${_htlAttr(model?.desc)}'
+    );
   });
 
   it('escapes bare backticks in literals', () => {
@@ -57,7 +79,9 @@ describe('convertAttrValue', () => {
   });
 
   it('converts .size in attribute', () => {
-    expect(convertAttrValue('${items.size}')).toBe("${_htlAttr(items?.length)}");
+    expect(convertAttrValue('${items.size}')).toBe(
+      '${_htlAttr(items?.length)}'
+    );
   });
 });
 
@@ -67,7 +91,9 @@ describe('convertTextContent', () => {
   });
 
   it('handles i18n string in text', () => {
-    expect(convertTextContent("${'Learn more' @ i18n}")).toBe("${(_i18n?.['Learn more'] ?? 'Learn more') ?? ''}");
+    expect(convertTextContent("${'Learn more' @ i18n}")).toBe(
+      "${(_i18n?.['Learn more'] ?? 'Learn more') ?? ''}"
+    );
   });
 
   it('escapes literal backticks', () => {
@@ -93,7 +119,9 @@ describe('transpile — banner & export naming', () => {
   it('generates valid JS', () => {
     const src = `<div data-sly-use.model="com.example.Model" class="wrapper">\${model.title}</div>`;
     const out = transpile(src, { filename: 'card.html' });
-    expect(() => new Function(out.replace(/module\.exports.*/, ''))).not.toThrow();
+    expect(
+      () => new Function(out.replace(/module\.exports.*/, ''))
+    ).not.toThrow();
   });
 });
 
@@ -287,7 +315,9 @@ describe('transpile — data-sly-set', () => {
     const mod: any = {};
     new Function('module', code)(mod);
     const fn = Object.values(mod.exports)[0] as Function;
-    const html = fn({ model: { pathUrl: '/my-path', width: 50, title: 'Test' } });
+    const html = fn({
+      model: { pathUrl: '/my-path', width: 50, title: 'Test' },
+    });
     expect(html).toContain('href="/my-path"');
     expect(html).toContain('width:50%');
     expect(html).toContain('Test');
@@ -355,7 +385,12 @@ describe('transpile — in operator', () => {
     new Function('module', code)(mod);
     const fn = Object.values(mod.exports)[0] as Function;
 
-    expect(fn({ item: { name: 'panel-1' }, parent: { expandedItems: { 'panel-1': true } } })).toContain('expanded');
+    expect(
+      fn({
+        item: { name: 'panel-1' },
+        parent: { expandedItems: { 'panel-1': true } },
+      })
+    ).toContain('expanded');
   });
 
   it('returns false when key does not exist in object', () => {
@@ -365,7 +400,12 @@ describe('transpile — in operator', () => {
     new Function('module', code)(mod);
     const fn = Object.values(mod.exports)[0] as Function;
 
-    expect(fn({ item: { name: 'other' }, parent: { expandedItems: { 'panel-1': true } } })).not.toContain('expanded');
+    expect(
+      fn({
+        item: { name: 'other' },
+        parent: { expandedItems: { 'panel-1': true } },
+      })
+    ).not.toContain('expanded');
   });
 
   it('handles in operator inside parenthesized ternary in attribute', () => {
@@ -377,8 +417,12 @@ describe('transpile — in operator', () => {
     new Function('module', code)(mod);
     const fn = Object.values(mod.exports)[0] as Function;
 
-    expect(fn({ accordion: { items: [{ name: 'x' }], expandedItems: { x: true } } })).toContain('base active');
-    expect(fn({ accordion: { items: [{ name: 'y' }], expandedItems: { x: true } } })).toContain('class="base"');
+    expect(
+      fn({ accordion: { items: [{ name: 'x' }], expandedItems: { x: true } } })
+    ).toContain('base active');
+    expect(
+      fn({ accordion: { items: [{ name: 'y' }], expandedItems: { x: true } } })
+    ).toContain('class="base"');
   });
 });
 
@@ -550,7 +594,9 @@ describe('transpile — data-sly-test.var + data-sly-repeat on same element', ()
   it('hoists the test variable before the loop in a scoped IIFE', () => {
     const src = `<ul data-sly-test.hasItems="\${items.length > 0}" data-sly-repeat.item="\${items}"><li>\${item}</li></ul>`;
     const code = transpile(src, { filename: 'test.html' });
-    expect(code).toMatch(/const hasItems[\s\S]*?return \(hasItems\)[\s\S]*?\.map\(/);
+    expect(code).toMatch(
+      /const hasItems[\s\S]*?return \(hasItems\)[\s\S]*?\.map\(/
+    );
   });
 });
 
@@ -568,7 +614,9 @@ describe('convertExpr — @join', () => {
   });
 
   it('handles @join with other options', () => {
-    expect(convertExpr("tags @ join=\", \", context='html'")).toBe("(tags).join(', ')");
+    expect(convertExpr('tags @ join=", ", context=\'html\'')).toBe(
+      "(tags).join(', ')"
+    );
   });
 });
 
@@ -609,7 +657,7 @@ describe('transpile — data-sly-resource', () => {
     const src = `<sly data-sly-resource="\${model.resourcePath}"></sly>`;
     const out = transpile(src, { filename: 'test.html' });
     expect(out).toContain('_includes');
-    expect(out).toContain("model?.resourcePath");
+    expect(out).toContain('model?.resourcePath');
   });
 
   it('invokes the _includes function for the resource at runtime', () => {
@@ -1068,11 +1116,13 @@ describe('convertExpr — i18n dictionary', () => {
   });
 
   it('generates dictionary lookup for double-quoted string', () => {
-    expect(convertExpr('"Hello" @ i18n')).toBe("_i18n?.['Hello'] ?? \"Hello\"");
+    expect(convertExpr('"Hello" @ i18n')).toBe('_i18n?.[\'Hello\'] ?? "Hello"');
   });
 
   it('generates dictionary lookup when i18n is combined with other options', () => {
-    expect(convertExpr("'Hello' @ i18n, context='html'")).toBe("_i18n?.['Hello'] ?? 'Hello'");
+    expect(convertExpr("'Hello' @ i18n, context='html'")).toBe(
+      "_i18n?.['Hello'] ?? 'Hello'"
+    );
   });
 
   it('does not generate lookup when @ i18n is absent', () => {
@@ -1134,7 +1184,7 @@ describe('transpile — i18n dictionary', () => {
     const mod: any = {};
     new Function('module', code)(mod);
     const fn = Object.values(mod.exports)[0] as Function;
-    const html = fn({ _i18n: { 'Title': 'Título', 'Description': 'Descripción' } });
+    const html = fn({ _i18n: { Title: 'Título', Description: 'Descripción' } });
     expect(html).toContain('Título');
     expect(html).toContain('Descripción');
   });
@@ -1369,7 +1419,10 @@ describe('transpile — test + resource combined', () => {
     const mod: any = {};
     new Function('module', code)(mod);
     const fn = Object.values(mod.exports)[0] as Function;
-    const html = fn({ model: { showHeader: true }, _includes: { header: () => '<nav>Nav</nav>' } });
+    const html = fn({
+      model: { showHeader: true },
+      _includes: { header: () => '<nav>Nav</nav>' },
+    });
     expect(html).toContain('<nav>Nav</nav>');
   });
 
@@ -1379,7 +1432,10 @@ describe('transpile — test + resource combined', () => {
     const mod: any = {};
     new Function('module', code)(mod);
     const fn = Object.values(mod.exports)[0] as Function;
-    const html = fn({ model: { showHeader: false }, _includes: { header: () => '<nav>Nav</nav>' } });
+    const html = fn({
+      model: { showHeader: false },
+      _includes: { header: () => '<nav>Nav</nav>' },
+    });
     expect(html).not.toContain('<nav>');
   });
 });
@@ -1436,7 +1492,12 @@ describe('transpile — multiple includes', () => {
     const mod: any = {};
     new Function('module', code)(mod);
     const fn = Object.values(mod.exports)[0] as Function;
-    const html = fn({ _includes: { './header.html': () => '<nav>H</nav>', './footer.html': () => '<footer>F</footer>' } });
+    const html = fn({
+      _includes: {
+        './header.html': () => '<nav>H</nav>',
+        './footer.html': () => '<footer>F</footer>',
+      },
+    });
     expect(html).toContain('<nav>H</nav>');
     expect(html).toContain('<footer>F</footer>');
     expect(html).toContain('content');
@@ -1471,7 +1532,10 @@ describe('transpile — test + include combined', () => {
     const mod: any = {};
     new Function('module', code)(mod);
     const fn = Object.values(mod.exports)[0] as Function;
-    const html = fn({ model: { show: false }, _includes: { './partial.html': () => 'INCLUDED' } });
+    const html = fn({
+      model: { show: false },
+      _includes: { './partial.html': () => 'INCLUDED' },
+    });
     expect(html).not.toContain('INCLUDED');
   });
 
@@ -1481,7 +1545,10 @@ describe('transpile — test + include combined', () => {
     const mod: any = {};
     new Function('module', code)(mod);
     const fn = Object.values(mod.exports)[0] as Function;
-    const html = fn({ model: { show: true }, _includes: { './partial.html': () => 'INCLUDED' } });
+    const html = fn({
+      model: { show: true },
+      _includes: { './partial.html': () => 'INCLUDED' },
+    });
     expect(html).toContain('INCLUDED');
   });
 });
@@ -1516,7 +1583,13 @@ describe('transpile — repeat with conditional inner elements', () => {
     const mod: any = {};
     new Function('module', code)(mod);
     const fn = Object.values(mod.exports)[0] as Function;
-    const html = fn({ items: [{ name: 'A', show: true }, { name: 'B', show: false }, { name: 'C', show: true }] });
+    const html = fn({
+      items: [
+        { name: 'A', show: true },
+        { name: 'B', show: false },
+        { name: 'C', show: true },
+      ],
+    });
     expect(html).toContain('A');
     expect(html).not.toContain('B');
     expect(html).toContain('C');
@@ -1581,7 +1654,9 @@ describe('transpile — real-world AEM accordion pattern', () => {
     const mod: any = {};
     new Function('module', code)(mod);
     const fn = Object.values(mod.exports)[0] as Function;
-    const html = fn({ accordion: { items: [], expandedItems: {}, id: 'acc1' } });
+    const html = fn({
+      accordion: { items: [], expandedItems: {}, id: 'acc1' },
+    });
     expect(html).toBe('');
   });
 
@@ -1590,13 +1665,15 @@ describe('transpile — real-world AEM accordion pattern', () => {
     const mod: any = {};
     new Function('module', code)(mod);
     const fn = Object.values(mod.exports)[0] as Function;
-    expect(() => fn({
-      accordion: {
-        items: [{ name: 'p1', title: 'T', description: 'D' }],
-        expandedItems: undefined,
-        id: 'acc1',
-      },
-    })).not.toThrow();
+    expect(() =>
+      fn({
+        accordion: {
+          items: [{ name: 'p1', title: 'T', description: 'D' }],
+          expandedItems: undefined,
+          id: 'acc1',
+        },
+      })
+    ).not.toThrow();
   });
 });
 
@@ -1611,7 +1688,9 @@ describe('transpile — spread + named dynamic attributes', () => {
     const mod: any = {};
     new Function('module', code)(mod);
     const fn = Object.values(mod.exports)[0] as Function;
-    const html = fn({ model: { attrs: { role: 'dialog', title: 'Hello' }, id: 'myId' } });
+    const html = fn({
+      model: { attrs: { role: 'dialog', title: 'Hello' }, id: 'myId' },
+    });
     expect(html).toContain('id="myId"');
     expect(html).toContain('role="dialog"');
   });
@@ -1654,7 +1733,9 @@ describe('transpile — void element + dynamic attributes', () => {
     const mod: any = {};
     new Function('module', code)(mod);
     const fn = Object.values(mod.exports)[0] as Function;
-    const html = fn({ model: { name: 'email', val: 'test@test.com', isDisabled: true } });
+    const html = fn({
+      model: { name: 'email', val: 'test@test.com', isDisabled: true },
+    });
     expect(html).toContain('type="text"');
     expect(html).toContain('name="email"');
     expect(html).toContain('value="test@test.com"');
@@ -1669,7 +1750,9 @@ describe('transpile — void element + dynamic attributes', () => {
 
 describe('transpile — function naming', () => {
   it('converts kebab-case filename to PascalCase', () => {
-    const out = transpile('<div>hello</div>', { filename: 'my-cool-widget.html' });
+    const out = transpile('<div>hello</div>', {
+      filename: 'my-cool-widget.html',
+    });
     expect(out).toContain('createMyCoolWidget');
   });
 
@@ -1691,9 +1774,12 @@ describe('transpile — function naming', () => {
 describe('transpile — modelTransforms', () => {
   it('applies computed properties from modelTransforms', () => {
     const src = `<div data-sly-use.hero="com.example.HeroModel">\${hero.title}</div>`;
-    const code = transpile(src, { filename: 'test.html', modelTransforms: {
-      HeroModel: { subtitle: 'hero.name + " extra"' }
-    }});
+    const code = transpile(src, {
+      filename: 'test.html',
+      modelTransforms: {
+        HeroModel: { subtitle: 'hero.name + " extra"' },
+      },
+    });
     expect(code).toContain('Object.assign');
     // The transform should reference hero, not model
     expect(code).toContain('hero');
@@ -1771,7 +1857,10 @@ describe('transpile — set with mixed literal and expression', () => {
 describe('transpile — custom omitAttrs', () => {
   it('strips attributes matching custom omitAttrs patterns', () => {
     const src = `<div data-custom-tracking="evt123" class="wrapper">content</div>`;
-    const code = transpile(src, { filename: 'test.html', omitAttrs: [/^data-custom/] });
+    const code = transpile(src, {
+      filename: 'test.html',
+      omitAttrs: [/^data-custom/],
+    });
     const mod: any = {};
     new Function('module', code)(mod);
     const fn = Object.values(mod.exports)[0] as Function;
@@ -1810,7 +1899,12 @@ describe('transpile — sly inside table row', () => {
     const mod: any = {};
     new Function('module', code)(mod);
     const fn = Object.values(mod.exports)[0] as Function;
-    const html = fn({ model: { headers: [{ title: 'A' }, { title: 'B' }, { title: 'C' }], columnsCount: 2 } });
+    const html = fn({
+      model: {
+        headers: [{ title: 'A' }, { title: 'B' }, { title: 'C' }],
+        columnsCount: 2,
+      },
+    });
     expect(html).toContain('<th>');
     expect(html.match(/<th>/g)?.length).toBe(2);
     expect(html).toContain('A');
@@ -1840,7 +1934,10 @@ describe('transpile — sly inside table row', () => {
 describe('transpile — wrapperClass', () => {
   it('auto-derives wrapper class from folder name when true', () => {
     const src = `<p>hello</p>`;
-    const code = transpile(src, { filename: '/apps/mysite/image/image.html', wrapperClass: true });
+    const code = transpile(src, {
+      filename: '/apps/mysite/image/image.html',
+      wrapperClass: true,
+    });
     expect(code).toContain('class="image');
     const mod: any = {};
     new Function('module', code)(mod);
@@ -1851,22 +1948,34 @@ describe('transpile — wrapperClass', () => {
 
   it('uses custom class string when provided', () => {
     const src = `<p>content</p>`;
-    const code = transpile(src, { filename: 'layout.html', wrapperClass: 'layout aem-GridColumn aem-GridColumn--default--12' });
+    const code = transpile(src, {
+      filename: 'layout.html',
+      wrapperClass: 'layout aem-GridColumn aem-GridColumn--default--12',
+    });
     const mod: any = {};
     new Function('module', code)(mod);
     const fn = Object.values(mod.exports)[0] as Function;
     const html = fn();
-    expect(html).toBe('<div class="layout aem-GridColumn aem-GridColumn--default--12"><p>content</p></div>');
+    expect(html).toBe(
+      '<div class="layout aem-GridColumn aem-GridColumn--default--12"><p>content</p></div>'
+    );
   });
 
   it('appends _wrapperClass from runtime when provided', () => {
     const src = `<p>inner</p>`;
-    const code = transpile(src, { filename: '/apps/mysite/column/column.html', wrapperClass: true });
+    const code = transpile(src, {
+      filename: '/apps/mysite/column/column.html',
+      wrapperClass: true,
+    });
     const mod: any = {};
     new Function('module', code)(mod);
     const fn = Object.values(mod.exports)[0] as Function;
-    const html = fn({ _wrapperClass: 'aem-GridColumn aem-GridColumn--default--12' });
-    expect(html).toBe('<div class="column aem-GridColumn aem-GridColumn--default--12"><p>inner</p></div>');
+    const html = fn({
+      _wrapperClass: 'aem-GridColumn aem-GridColumn--default--12',
+    });
+    expect(html).toBe(
+      '<div class="column aem-GridColumn aem-GridColumn--default--12"><p>inner</p></div>'
+    );
   });
 
   it('does not add wrapper when wrapperClass is false', () => {
@@ -1899,13 +2008,19 @@ describe('transpile — resourceWrappers', () => {
     const src = `<sly data-sly-resource="\${'responsivegrid'}"></sly>`;
     const code = transpile(src, {
       filename: 'test.html',
-      resourceWrappers: { responsivegrid: 'aem-Grid aem-Grid--12 aem-Grid--default--12' },
+      resourceWrappers: {
+        responsivegrid: 'aem-Grid aem-Grid--12 aem-Grid--default--12',
+      },
     });
     const mod: any = {};
     new Function('module', code)(mod);
     const fn = Object.values(mod.exports)[0] as Function;
-    const html = fn({ _includes: { responsivegrid: () => '<div>grid content</div>' } });
-    expect(html).toContain('<div class="aem-Grid aem-Grid--12 aem-Grid--default--12">');
+    const html = fn({
+      _includes: { responsivegrid: () => '<div>grid content</div>' },
+    });
+    expect(html).toContain(
+      '<div class="aem-Grid aem-Grid--12 aem-Grid--default--12">'
+    );
     expect(html).toContain('<div>grid content</div>');
     expect(html).toContain('</div>');
   });
@@ -1951,6 +2066,69 @@ describe('transpile — resourceWrappers', () => {
     expect(html).toContain('<div class="sidebar-wrapper">');
     expect(html).toContain('<aside>Side</aside>');
   });
+
+  it('matches by resourceType when key does not match', () => {
+    const src = `<sly data-sly-resource="\${'par' @ resourceType='mysite/components/responsivegrid'}"></sly>`;
+    const code = transpile(src, {
+      filename: 'test.html',
+      resourceWrappers: {
+        'mysite/components/responsivegrid':
+          'aem-Grid aem-Grid--12 aem-Grid--default--12',
+      },
+    });
+    const mod: any = {};
+    new Function('module', code)(mod);
+    const fn = Object.values(mod.exports)[0] as Function;
+    const html = fn({
+      _includes: { par: () => '<div class="col">content</div>' },
+    });
+    expect(html).toContain(
+      '<div class="aem-Grid aem-Grid--12 aem-Grid--default--12">'
+    );
+    expect(html).toContain('<div class="col">content</div>');
+  });
+
+  it('prefers resource key match over resourceType match', () => {
+    const src = `<sly data-sly-resource="\${'par' @ resourceType='mysite/components/responsivegrid'}"></sly>`;
+    const code = transpile(src, {
+      filename: 'test.html',
+      resourceWrappers: {
+        par: 'par-specific-class',
+        'mysite/components/responsivegrid': 'generic-grid-class',
+      },
+    });
+    const mod: any = {};
+    new Function('module', code)(mod);
+    const fn = Object.values(mod.exports)[0] as Function;
+    const html = fn({ _includes: { par: () => '<p>hi</p>' } });
+    expect(html).toContain('<div class="par-specific-class">');
+    expect(html).not.toContain('generic-grid-class');
+  });
+
+  it('resourceType match works with object config (wrapper + childClass)', () => {
+    const src = `<sly data-sly-resource="\${'par' @ resourceType='anaplan/components/responsivegrid'}"></sly>`;
+    const code = transpile(src, {
+      filename: 'test.html',
+      resourceWrappers: {
+        'anaplan/components/responsivegrid': {
+          wrapper: 'aem-Grid aem-Grid--12 aem-Grid--default--12',
+          childClass: 'aem-GridColumn aem-GridColumn--default--12',
+        },
+      },
+    });
+    const mod: any = {};
+    new Function('module', code)(mod);
+    const fn = Object.values(mod.exports)[0] as Function;
+    const html = fn({
+      _includes: { par: () => '<div class="column">text</div>' },
+    });
+    expect(html).toContain(
+      '<div class="aem-Grid aem-Grid--12 aem-Grid--default--12">'
+    );
+    expect(html).toContain(
+      '<div class="column aem-GridColumn aem-GridColumn--default--12">text</div>'
+    );
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -1964,7 +2142,9 @@ describe('transpile — AEM container + responsivegrid + column composition', ()
     const containerCode = transpile(containerSrc, {
       filename: '/apps/mysite/container/container.html',
       wrapperClass: true,
-      resourceWrappers: { responsivegrid: 'aem-Grid aem-Grid--12 aem-Grid--default--12' },
+      resourceWrappers: {
+        responsivegrid: 'aem-Grid aem-Grid--12 aem-Grid--default--12',
+      },
     });
     const containerMod: any = {};
     new Function('module', containerCode)(containerMod);
@@ -1983,9 +2163,10 @@ describe('transpile — AEM container + responsivegrid + column composition', ()
     // ── Compose at runtime ──
     const html = createContainer({
       _includes: {
-        responsivegrid: () => createColumn({
-          _wrapperClass: 'aem-GridColumn aem-GridColumn--default--12',
-        }),
+        responsivegrid: () =>
+          createColumn({
+            _wrapperClass: 'aem-GridColumn aem-GridColumn--default--12',
+          }),
       },
     });
 
@@ -2001,8 +2182,12 @@ describe('transpile — AEM container + responsivegrid + column composition', ()
     // </div>
     expect(html).toContain('<div class="container">');
     expect(html).toContain('<div class="cmp-container">');
-    expect(html).toContain('<div class="aem-Grid aem-Grid--12 aem-Grid--default--12">');
-    expect(html).toContain('<div class="column aem-GridColumn aem-GridColumn--default--12">');
+    expect(html).toContain(
+      '<div class="aem-Grid aem-Grid--12 aem-Grid--default--12">'
+    );
+    expect(html).toContain(
+      '<div class="column aem-GridColumn aem-GridColumn--default--12">'
+    );
     expect(html).toContain('<div class="cmp-column">Sample Text</div>');
 
     // Verify nesting order
@@ -2019,23 +2204,22 @@ describe('transpile — AEM container + responsivegrid + column composition', ()
 });
 
 // ---------------------------------------------------------------------------
-// transpile — AEM composition configured entirely via modelTransforms
+// transpile — AEM composition with separated config options
 // ---------------------------------------------------------------------------
 
-describe('transpile — AEM composition via modelTransforms', () => {
-  const sharedTransforms = {
-    'LayoutContainer': {
-      _resourceWrappers: "{ responsivegrid: { wrapper: 'aem-Grid aem-Grid--12 aem-Grid--default--12', childClass: 'aem-GridColumn aem-GridColumn--default--12' } }",
-    },
-  };
-
-  it('configures resourceWrappers with childClass through modelTransforms in one place', () => {
+describe('transpile — AEM composition with separated config', () => {
+  it('composes container + grid + column with resourceWrappers + wrapperClass', () => {
     // ── Container component (uses LayoutContainer model) ──
     const containerSrc = `<div data-sly-use.container="com.example.LayoutContainer" class="cmp-container"><sly data-sly-resource="\${'responsivegrid'}"></sly></div>`;
     const containerCode = transpile(containerSrc, {
       filename: '/apps/mysite/container/container.html',
       wrapperClass: true,
-      modelTransforms: sharedTransforms,
+      resourceWrappers: {
+        responsivegrid: {
+          wrapper: 'aem-Grid aem-Grid--12 aem-Grid--default--12',
+          childClass: 'aem-GridColumn aem-GridColumn--default--12',
+        },
+      },
     });
     const containerMod: any = {};
     new Function('module', containerCode)(containerMod);
@@ -2051,27 +2235,21 @@ describe('transpile — AEM composition via modelTransforms', () => {
     new Function('module', columnCode)(columnMod);
     const createColumn = Object.values(columnMod.exports)[0] as Function;
 
-    // ── Compose at runtime — no manual _wrapperClass needed ──
+    // ── Compose at runtime ──
     const html = createContainer({
       _includes: {
         responsivegrid: () => createColumn(),
       },
     });
 
-    // Expected structure:
-    // <div class="container">
-    //   <div class="cmp-container">
-    //     <div class="aem-Grid aem-Grid--12 aem-Grid--default--12">
-    //       <div class="column aem-GridColumn aem-GridColumn--default--12">
-    //         <div class="cmp-column">Sample Text</div>
-    //       </div>
-    //     </div>
-    //   </div>
-    // </div>
     expect(html).toContain('<div class="container">');
     expect(html).toContain('<div class="cmp-container">');
-    expect(html).toContain('<div class="aem-Grid aem-Grid--12 aem-Grid--default--12">');
-    expect(html).toContain('<div class="column aem-GridColumn aem-GridColumn--default--12">');
+    expect(html).toContain(
+      '<div class="aem-Grid aem-Grid--12 aem-Grid--default--12">'
+    );
+    expect(html).toContain(
+      '<div class="column aem-GridColumn aem-GridColumn--default--12">'
+    );
     expect(html).toContain('<div class="cmp-column">Sample Text</div>');
 
     // Verify nesting order
@@ -2087,34 +2265,242 @@ describe('transpile — AEM composition via modelTransforms', () => {
   });
 
   it('childClass injects class when child has no existing class', () => {
-    const src = `<div data-sly-use.grid="com.example.LayoutContainer"><sly data-sly-resource="\${'responsivegrid'}"></sly></div>`;
+    const src = `<div><sly data-sly-resource="\${'responsivegrid'}"></sly></div>`;
     const code = transpile(src, {
       filename: 'test.html',
-      modelTransforms: sharedTransforms,
-    });
-    const mod: any = {};
-    new Function('module', code)(mod);
-    const fn = Object.values(mod.exports)[0] as Function;
-    const html = fn({ _includes: { responsivegrid: () => '<span>bare</span>' } });
-    expect(html).toContain('<div class="aem-Grid aem-Grid--12 aem-Grid--default--12">');
-    expect(html).toContain('<span class="aem-GridColumn aem-GridColumn--default--12">bare</span>');
-  });
-
-  it('runtime _resourceWrappers override modelTransform defaults', () => {
-    const src = `<div data-sly-use.c="com.example.LayoutContainer"><sly data-sly-resource="\${'responsivegrid'}"></sly></div>`;
-    const code = transpile(src, {
-      filename: 'test.html',
-      modelTransforms: sharedTransforms,
+      resourceWrappers: {
+        responsivegrid: {
+          wrapper: 'aem-Grid aem-Grid--12 aem-Grid--default--12',
+          childClass: 'aem-GridColumn aem-GridColumn--default--12',
+        },
+      },
     });
     const mod: any = {};
     new Function('module', code)(mod);
     const fn = Object.values(mod.exports)[0] as Function;
     const html = fn({
-      _includes: { responsivegrid: () => '<p>hi</p>' },
-      _resourceWrappers: { responsivegrid: 'custom-override' },
+      _includes: { responsivegrid: () => '<span>bare</span>' },
     });
-    // Runtime string override replaces the object config entirely
-    expect(html).toContain('<div class="custom-override">');
-    expect(html).toContain('<p>hi</p>');
+    expect(html).toContain(
+      '<div class="aem-Grid aem-Grid--12 aem-Grid--default--12">'
+    );
+    expect(html).toContain(
+      '<span class="aem-GridColumn aem-GridColumn--default--12">bare</span>'
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// transpile — fileOverrides
+// ---------------------------------------------------------------------------
+
+describe('transpile — fileOverrides', () => {
+  it('replaces data-sly-use file.html + data-sly-call with provided JS function', () => {
+    const src = [
+      '<sly data-sly-use.container="com.example.LayoutContainer">',
+      '  <sly data-sly-use.responsiveGridTemplate="responsiveGrid.html"',
+      '       data-sly-call="${responsiveGridTemplate.responsiveGrid @ container=container}"></sly>',
+      '</sly>',
+    ].join('\n');
+    const code = transpile(src, {
+      filename: 'container.html',
+      fileOverrides: {
+        'responsiveGrid.html':
+          "{ responsiveGrid: ({ container, _includes }) => _includes?.content?.() ?? '' }",
+      },
+    });
+    const mod: any = {};
+    new Function('module', code)(mod);
+    const fn = Object.values(mod.exports)[0] as Function;
+    const html = fn({ _includes: { content: () => '<p>Hello</p>' } });
+    expect(html).toContain('<p>Hello</p>');
+    // Should NOT contain require() calls
+    expect(code).not.toContain('require(');
+  });
+
+  it('fileOverrides defaults can be overridden at runtime', () => {
+    const src = [
+      '<sly data-sly-use.tpl="myTemplate.html"',
+      '     data-sly-call="${tpl.render @ title=\'Hi\'}"></sly>',
+    ].join('\n');
+    const code = transpile(src, {
+      filename: 'test.html',
+      fileOverrides: {
+        'myTemplate.html': "{ render: ({ title }) => '<b>' + title + '</b>' }",
+      },
+    });
+    const mod: any = {};
+    new Function('module', code)(mod);
+    const fn = Object.values(mod.exports)[0] as Function;
+
+    // Use default from fileOverrides
+    const html1 = fn();
+    expect(html1).toContain('<b>Hi</b>');
+
+    // Override at runtime
+    const html2 = fn({
+      tpl: { render: ({ title }: any) => '<i>' + title + '</i>' },
+    });
+    expect(html2).toContain('<i>Hi</i>');
+  });
+
+  it('works alongside modelTransforms and resourceWrappers', () => {
+    const src = [
+      '<sly data-sly-use.container="com.example.LayoutContainer">',
+      '  <sly data-sly-test="${container.layout == \'RESPONSIVE_GRID\'}"',
+      '       data-sly-use.gridTpl="responsiveGrid.html"',
+      '       data-sly-call="${gridTpl.responsiveGrid @ container=container}"></sly>',
+      '</sly>',
+    ].join('\n');
+    const code = transpile(src, {
+      filename: 'container.html',
+      modelTransforms: {
+        LayoutContainer: { layout: "'RESPONSIVE_GRID'" },
+      },
+      resourceWrappers: {
+        responsivegrid: { wrapper: 'aem-Grid', childClass: 'aem-GridColumn' },
+      },
+      fileOverrides: {
+        'responsiveGrid.html':
+          "{ responsiveGrid: ({ container, _includes }) => _includes?.content?.() ?? '' }",
+      },
+    });
+    const mod: any = {};
+    new Function('module', code)(mod);
+    const fn = Object.values(mod.exports)[0] as Function;
+    const html = fn({
+      _includes: { content: () => '<div class="child">OK</div>' },
+    });
+    // modelTransforms sets layout = 'RESPONSIVE_GRID', so the test passes
+    expect(html).toContain('<div class="child">OK</div>');
+    // No require calls
+    expect(code).not.toContain('require(');
+  });
+
+  it('wraps call output with resourceWrappers when fileOverride has resourceType', () => {
+    const src = [
+      '<sly data-sly-use.container="com.example.LayoutContainer">',
+      '  <sly data-sly-use.gridTpl="responsiveGrid.html"',
+      '       data-sly-call="${gridTpl.responsiveGrid @ container=container}"></sly>',
+      '</sly>',
+    ].join('\n');
+    const code = transpile(src, {
+      filename: 'container.html',
+      resourceWrappers: {
+        'mysite/components/responsivegrid': {
+          wrapper: 'aem-Grid aem-Grid--12',
+          childClass: 'aem-GridColumn aem-GridColumn--default--12',
+        },
+      },
+      fileOverrides: {
+        'responsiveGrid.html': {
+          expression:
+            "{ responsiveGrid: ({ container, _includes }) => _includes?.content?.() ?? '' }",
+          resourceType: 'mysite/components/responsivegrid',
+        },
+      },
+    });
+    const mod: any = {};
+    new Function('module', code)(mod);
+    const fn = Object.values(mod.exports)[0] as Function;
+    const html = fn({
+      _includes: { content: () => '<div class="child">OK</div>' },
+    });
+    // resourceWrappers should wrap the call output
+    expect(html).toContain('aem-Grid aem-Grid--12');
+    expect(html).toContain('aem-GridColumn aem-GridColumn--default--12');
+    expect(html).toContain(
+      '<div class="child aem-GridColumn aem-GridColumn--default--12">OK</div>'
+    );
+  });
+
+  it('resourceType wrapping works with wrapperClass for full composition', () => {
+    const src = [
+      '<sly data-sly-use.container="com.example.LayoutContainer">',
+      '  <sly data-sly-use.gridTpl="responsiveGrid.html"',
+      '       data-sly-call="${gridTpl.responsiveGrid @ container=container}"></sly>',
+      '</sly>',
+    ].join('\n');
+    const code = transpile(src, {
+      filename: '/apps/mysite/container/container.html',
+      wrapperClass: true,
+      resourceWrappers: {
+        'mysite/components/responsivegrid': {
+          wrapper: 'aem-Grid aem-Grid--12',
+          childClass: 'aem-GridColumn',
+        },
+      },
+      fileOverrides: {
+        'responsiveGrid.html': {
+          expression:
+            "{ responsiveGrid: ({ container, _includes }) => _includes?.content?.() ?? '' }",
+          resourceType: 'mysite/components/responsivegrid',
+        },
+      },
+    });
+    const mod: any = {};
+    new Function('module', code)(mod);
+    const fn = Object.values(mod.exports)[0] as Function;
+    const html = fn({ _includes: { content: () => '<div>Column</div>' } });
+    // wrapper from wrapperClass
+    expect(html).toContain('<div class="container">');
+    // grid wrapper from resourceWrappers via fileOverride resourceType
+    expect(html).toContain('<div class="aem-Grid aem-Grid--12">');
+    // childClass injected
+    expect(html).toContain('<div class="aem-GridColumn">Column</div>');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// transpile — modelTransforms _includes (computed from model data)
+// ---------------------------------------------------------------------------
+
+describe('transpile — modelTransforms _includes', () => {
+  it('computes _includes from model data via _includes special key', () => {
+    const src = `<div data-sly-use.model="com.example.ColumnContainer" data-sly-repeat.item="\${model.columns}" data-sly-resource="\${item.path}"></div>`;
+    const code = transpile(src, {
+      filename: 'columns.html',
+      modelTransforms: {
+        ColumnContainer: {
+          _includes:
+            "Object.fromEntries((model.columns || []).map((col, i) => [col.path, () => (model._content || [])[i] || '']))",
+        },
+      },
+    });
+    const mod: any = {};
+    new Function('module', code)(mod);
+    const fn = Object.values(mod.exports)[0] as Function;
+    const html = fn({
+      model: {
+        columns: [
+          { path: 'col-0', cssClass: 'a' },
+          { path: 'col-1', cssClass: 'b' },
+        ],
+        _content: ['<p>First</p>', '<p>Second</p>'],
+      },
+    });
+    expect(html).toContain('<p>First</p>');
+    expect(html).toContain('<p>Second</p>');
+    // _includes should NOT appear as a model property
+    expect(code).not.toMatch(/Object\.assign\(\{[^}]*_includes/);
+  });
+
+  it('_includes from modelTransforms merges with runtime _includes', () => {
+    const src = `<div data-sly-use.m="com.example.ColumnContainer"><sly data-sly-resource="\${'slot-a'}"></sly><sly data-sly-resource="\${'extra'}"></sly></div>`;
+    const code = transpile(src, {
+      filename: 'test.html',
+      modelTransforms: {
+        ColumnContainer: {
+          _includes: "{ 'slot-a': () => '<b>computed</b>' }",
+        },
+      },
+    });
+    const mod: any = {};
+    new Function('module', code)(mod);
+    const fn = Object.values(mod.exports)[0] as Function;
+    // Runtime _includes for 'extra' merges with computed 'slot-a'
+    const html = fn({ _includes: { extra: () => '<i>runtime</i>' } });
+    expect(html).toContain('<b>computed</b>');
+    expect(html).toContain('<i>runtime</i>');
   });
 });

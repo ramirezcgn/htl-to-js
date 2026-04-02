@@ -447,14 +447,18 @@ const html = createColumn({ _wrapperClass: 'aem-GridColumn aem-GridColumn--defau
 
 ### `resourceWrappers`
 
-Object mapping resource keys to CSS classes (or configuration objects) that wrap `data-sly-resource` slot output. Mimics the extra wrapper divs that AEM's responsive grid adds around its children.
+Object mapping resource keys **or `resourceType` paths** to CSS classes (or configuration objects) that wrap `data-sly-resource` slot output. Mimics the extra wrapper divs that AEM's responsive grid adds around its children.
+
+Keys are matched in this order:
+1. **Resource name** — the value in the expression (e.g. `'par'` from `data-sly-resource="${'par' @ ...}"`)
+2. **`resourceType`** — the `@resourceType` option value (e.g. `'mysite/components/responsivegrid'`)
 
 **Simple string value** — wraps the slot output in a `<div>` with that class:
 
 ```js
 options: {
   resourceWrappers: {
-    responsivegrid: 'aem-Grid aem-Grid--12 aem-Grid--default--12',
+    'mysite/components/responsivegrid': 'aem-Grid aem-Grid--12 aem-Grid--default--12',
   }
 }
 ```
@@ -464,7 +468,7 @@ options: {
 ```js
 options: {
   resourceWrappers: {
-    responsivegrid: {
+    'mysite/components/responsivegrid': {
       wrapper: 'aem-Grid aem-Grid--12 aem-Grid--default--12',
       childClass: 'aem-GridColumn aem-GridColumn--default--12',
     }
@@ -479,43 +483,107 @@ At runtime, the `_resourceWrappers` parameter can override or extend the static 
 
 ### `modelTransforms`
 
-Object mapping `data-sly-use` class-name patterns to property injections. Enables build-time property merging based on the use class.
+Object mapping `data-sly-use` class-name patterns to property injections. Enables build-time property merging based on the use class. All keys are merged as computed properties into the model variable.
 
-Supported special keys:
-
-| Key | Purpose |
-|---|---|
-| `_includes` | Merges extra entries into the `_includes` map |
-| `_resourceWrappers` | Merges resource wrapper configs (supports object `{ wrapper, childClass }` format) |
-| `_wrapperClass` | Sets the default `_wrapperClass` value for the component |
-| *(other keys)* | Merged as computed properties into the model variable |
-
-**Example — configure AEM grid wrappers in one place:**
+**Example — set default model values:**
 
 ```js
 const modelTransforms = {
-  'Container': {
-    _resourceWrappers: "{ responsivegrid: { wrapper: 'aem-Grid aem-Grid--12 aem-Grid--default--12', childClass: 'aem-GridColumn aem-GridColumn--default--12' } }",
+  'LayoutContainer': {
+    layout: "'RESPONSIVE_GRID'",
   },
 };
 ```
 
-Any component that uses `data-sly-use.x="com.example.Container"` will automatically get the grid wrapper configuration applied, with no manual runtime wiring needed.
+Any component that uses `data-sly-use.x="com.example.LayoutContainer"` will get `layout` set to `'RESPONSIVE_GRID'` as default (can be overridden at runtime). The value is a JS expression string where `model` is replaced with the actual variable name.
+
+**Special key `_includes`** — computes `_includes` slot entries from model data. Unlike regular keys (which are merged into the model object), `_includes` is assigned to the `_includes` parameter directly. Runtime `_includes` take precedence over computed ones.
+
+```js
+const modelTransforms = {
+  'ColumnModel': {
+    _includes: "Object.fromEntries((model.columns || []).map((col, i) => [col.path, () => (model._content || [])[i] || '']))",
+  },
+};
+```
+
+This is the only special key — it belongs in `modelTransforms` because the value is computed from the model data, unlike `resourceWrappers` or `wrapperClass` which are static configuration.
+
+### `fileOverrides`
+
+Object mapping HTL file names to expression strings (or configuration objects) that replace `data-sly-use.X="file.html"` + `data-sly-call` references. Useful for replacing AEM template files (like `responsiveGrid.html`) that don't exist in your Storybook build.
+
+**Simple string value** — replaces the `require()` call with the provided expression:
+
+```js
+options: {
+  fileOverrides: {
+    'responsiveGrid.html': "{ responsiveGrid: ({ container, _includes }) => _includes?.content?.() ?? '' }",
+  }
+}
+```
+
+**Object value with `resourceType`** — additionally wraps the `data-sly-call` output with the matching `resourceWrappers` config:
+
+```js
+options: {
+  resourceWrappers: {
+    'mysite/components/responsivegrid': {
+      wrapper: 'aem-Grid aem-Grid--12 aem-Grid--default--12',
+      childClass: 'aem-GridColumn aem-GridColumn--default--12',
+    },
+  },
+  fileOverrides: {
+    'responsiveGrid.html': {
+      expression: "{ responsiveGrid: ({ container, _includes }) => _includes?.content?.() ?? '' }",
+      resourceType: 'mysite/components/responsivegrid',
+    },
+  },
+}
+```
+
+The `resourceType` links the file override to a `resourceWrappers` entry. The transpiler wraps the call output with `_wrapResource()`, applying the grid wrapper and `childClass` automatically — the same helper used for `data-sly-resource`.
+
+When the transpiler encounters `data-sly-use.tpl="responsiveGrid.html"`, instead of generating a `require()` call, it uses the provided value as the default for the `tpl` parameter. The `data-sly-call="${tpl.responsiveGrid @ ...}"` then calls the function directly.
+
+The override can be replaced at runtime by passing a different value for the parameter:
+
+```js
+// Use default from fileOverrides
+const html = createContainer();
+
+// Override at runtime
+const html = createContainer({
+  responsiveGridTemplate: { responsiveGrid: myCustomFn },
+});
+```
 
 ---
 
 ## AEM component composition example
 
-Combining `wrapperClass`, `resourceWrappers`, and `modelTransforms` reproduces AEM's full component nesting structure.
+Combining `wrapperClass`, `resourceWrappers`, `modelTransforms`, and `fileOverrides` reproduces AEM's full component nesting structure.
 
 **Config (shared across all components):**
 
 ```js
 const options = {
   wrapperClass: true,
+  resourceWrappers: {
+    'mysite/components/responsivegrid': {
+      wrapper: 'aem-Grid aem-Grid--12 aem-Grid--default--12',
+      childClass: 'aem-GridColumn aem-GridColumn--default--12',
+    },
+  },
   modelTransforms: {
-    'Container': {
-      _resourceWrappers: "{ responsivegrid: { wrapper: 'aem-Grid aem-Grid--12 aem-Grid--default--12', childClass: 'aem-GridColumn aem-GridColumn--default--12' } }",
+    'LayoutContainer': {
+      layout: "'RESPONSIVE_GRID'",
+    },
+  },
+  fileOverrides: {
+    'responsiveGrid.html': {
+      expression: "{ responsiveGrid: ({ container, _includes }) => _includes?.content?.() ?? '' }",
+      resourceType: 'mysite/components/responsivegrid',
     },
   },
 };
@@ -524,9 +592,14 @@ const options = {
 **Container HTL:**
 
 ```html
-<div data-sly-use.container="com.example.Container" class="cmp-container">
-  <sly data-sly-resource="${'responsivegrid'}"></sly>
-</div>
+<sly data-sly-use.container="com.adobe.cq.wcm.core.components.models.LayoutContainer">
+  <sly data-sly-test.responsive="${container.layout == 'RESPONSIVE_GRID'}"
+       data-sly-use.responsiveGridTemplate="responsiveGrid.html"
+       data-sly-call="${responsiveGridTemplate.responsiveGrid @ container=container}"></sly>
+  <sly data-sly-test="${!responsive}"
+       data-sly-use.simpleTemplate="simple.html"
+       data-sly-call="${simpleTemplate.simple @ container=container}"></sly>
+</sly>
 ```
 
 **Column HTL:**
@@ -544,25 +617,32 @@ import { createColumn } from '../column/column.html';
 export const Default = {
   render: () => createContainer({
     _includes: {
-      responsivegrid: () => createColumn(),
+      content: () => createColumn(),
     },
   }),
 };
 ```
 
-**Output:**
+**Rendered HTML:**
 
 ```html
-<div class="container">
-  <div class="cmp-container">
-    <div class="aem-Grid aem-Grid--12 aem-Grid--default--12">
-      <div class="column aem-GridColumn aem-GridColumn--default--12">
-        <div class="cmp-column">Sample Text</div>
-      </div>
+<div class="container">                                    <!-- wrapperClass -->
+  <div class="aem-Grid aem-Grid--12 aem-Grid--default--12"> <!-- resourceWrappers.wrapper via fileOverrides.resourceType -->
+    <div class="cmp-column aem-GridColumn aem-GridColumn--default--12"> <!-- resourceWrappers.childClass -->
+      Sample Text
     </div>
   </div>
 </div>
 ```
+
+Each option has a single responsibility:
+
+| Option | Responsibility |
+|---|---|
+| `wrapperClass` | Component wrapper `<div>` with CSS class |
+| `resourceWrappers` | Wraps output with grid/column divs (used by both `data-sly-resource` and `fileOverrides` with `resourceType`) |
+| `modelTransforms` | Model property defaults (e.g. `layout: 'RESPONSIVE_GRID'`) |
+| `fileOverrides` | Replaces `data-sly-use="file.html"` with JS functions; `resourceType` links to `resourceWrappers` |
 
 ---
 

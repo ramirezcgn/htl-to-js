@@ -24,6 +24,7 @@ export interface Directives {
   sets: SetDecl[];
   text: string | null;
   resource: string | null;
+  resourceType: string | null;
   template: { name: string; params: string[] } | null;
   call: CallDescriptor | null;
   include: string | null;
@@ -75,7 +76,9 @@ function resolveHtlPath(val: string, sourceDir: string): string | null {
 function parseUseDefault(val: string): string | null {
   const atIdx = val.indexOf('@');
   if (atIdx === -1) return null;
-  const vals = [...val.slice(atIdx + 1).matchAll(/\w+\s*=\s*(\w+)/g)].map(m => m[1]);
+  const vals = [...val.slice(atIdx + 1).matchAll(/\w+\s*=\s*(\w+)/g)].map(
+    (m) => m[1]
+  );
   return vals.length ? `{ ${vals.join(', ')} }` : null;
 }
 
@@ -83,7 +86,10 @@ function parseUseDefault(val: string): string | null {
  * Parses all data-sly-* attributes from a node's attribute map and returns
  * a structured descriptor used by the walker to generate JS code.
  */
-export function parseDirectives(attrs: Record<string, string>, sourceDir = ''): Directives {
+export function parseDirectives(
+  attrs: Record<string, string>,
+  sourceDir = ''
+): Directives {
   const directives: Directives = {
     use: {},
     useDefaults: {},
@@ -95,6 +101,7 @@ export function parseDirectives(attrs: Record<string, string>, sourceDir = ''): 
     sets: [],
     text: null,
     resource: null,
+    resourceType: null,
     template: null,
     call: null,
     include: null,
@@ -102,7 +109,6 @@ export function parseDirectives(attrs: Record<string, string>, sourceDir = ''): 
   };
 
   for (const [key, val] of Object.entries(attrs)) {
-
     const useMatch = /^data-sly-use\.(\w+)$/.exec(key);
     if (useMatch) {
       const name = useMatch[1];
@@ -128,7 +134,11 @@ export function parseDirectives(attrs: Record<string, string>, sourceDir = ''): 
     const testVarMatch = /^data-sly-test\.(\w+)$/.exec(key);
     if (testVarMatch) {
       const varName = testVarMatch[1];
-      directives.sets.push({ name: varName, expr: convertExpr(val), raw: true });
+      directives.sets.push({
+        name: varName,
+        expr: convertExpr(val),
+        raw: true,
+      });
       directives.test = varName;
       directives.skip.add(key);
       continue;
@@ -136,13 +146,21 @@ export function parseDirectives(attrs: Record<string, string>, sourceDir = ''): 
 
     const repeatMatch = /^data-sly-(?:repeat|list)\.(\w+)$/.exec(key);
     if (repeatMatch) {
-      directives.repeat = { varName: repeatMatch[1], listExpr: convertExpr(val), listMode: key.startsWith('data-sly-list.') };
+      directives.repeat = {
+        varName: repeatMatch[1],
+        listExpr: convertExpr(val),
+        listMode: key.startsWith('data-sly-list.'),
+      };
       directives.skip.add(key);
       continue;
     }
 
     if (key === 'data-sly-list' || key === 'data-sly-repeat') {
-      directives.repeat = { varName: 'item', listExpr: convertExpr(val), listMode: key === 'data-sly-list' };
+      directives.repeat = {
+        varName: 'item',
+        listExpr: convertExpr(val),
+        listMode: key === 'data-sly-list',
+      };
       directives.skip.add(key);
       continue;
     }
@@ -162,10 +180,13 @@ export function parseDirectives(attrs: Record<string, string>, sourceDir = ''): 
     const setMatch = /^data-sly-set\.(\w+)$/.exec(key);
     if (setMatch) {
       const t = val.trim();
-      const isPureExpr = t.startsWith('${') && t.endsWith('}') && !t.slice(2, -1).includes('${');
-      directives.sets.push(isPureExpr
-        ? { name: setMatch[1], expr: convertExpr(t), raw: true }
-        : { name: setMatch[1], expr: convertAttrValue(val) });
+      const isPureExpr =
+        t.startsWith('${') && t.endsWith('}') && !t.slice(2, -1).includes('${');
+      directives.sets.push(
+        isPureExpr
+          ? { name: setMatch[1], expr: convertExpr(t), raw: true }
+          : { name: setMatch[1], expr: convertAttrValue(val) }
+      );
       directives.skip.add(key);
       continue;
     }
@@ -182,6 +203,8 @@ export function parseDirectives(attrs: Record<string, string>, sourceDir = ''): 
         const pathMatch = /@\s*path\s*=\s*([^,}@\s'"]+)/.exec(val);
         if (pathMatch) resource = convertExpr('${' + pathMatch[1] + '}');
       }
+      const rtMatch = /@\s*resourceType\s*=\s*['"]([^'"]+)['"]/.exec(val);
+      if (rtMatch) directives.resourceType = rtMatch[1];
       directives.resource = resource;
       directives.skip.add(key);
       continue;
@@ -189,7 +212,7 @@ export function parseDirectives(attrs: Record<string, string>, sourceDir = ''): 
 
     const templateMatch = /^data-sly-template\.(\w+)$/.exec(key);
     if (templateMatch) {
-      const params = [...val.matchAll(/@\s*(\w+)/g)].map(m => m[1]);
+      const params = [...val.matchAll(/@\s*(\w+)/g)].map((m) => m[1]);
       directives.template = { name: templateMatch[1], params };
       directives.skip.add(key);
       continue;
@@ -201,22 +224,33 @@ export function parseDirectives(attrs: Record<string, string>, sourceDir = ''): 
       directives.dynamicAttrs ??= [];
       const t = val.trim();
       const exprs = extractExprs(t);
-      const isPureExpr = exprs.length === 1 && exprs[0].index === 0 && exprs[0].end === t.length;
+      const isPureExpr =
+        exprs.length === 1 && exprs[0].index === 0 && exprs[0].end === t.length;
       if (isPureExpr) {
-        directives.dynamicAttrs.push({ name: attrName, expr: convertExpr(val) });
+        directives.dynamicAttrs.push({
+          name: attrName,
+          expr: convertExpr(val),
+        });
       } else if (exprs.length > 0) {
         const parts: string[] = [];
         let last = 0;
         for (const { index, expr: e, end } of exprs) {
-          if (index > last) parts.push(t.slice(last, index).replaceAll("`", '\\`'));
+          if (index > last)
+            parts.push(t.slice(last, index).replaceAll('`', '\\`'));
           parts.push(`\${${convertExpr(e)}}`);
           last = end;
         }
-        if (last < t.length) parts.push(t.slice(last).replaceAll("`", "\\`"));
-        directives.dynamicAttrs.push({ name: attrName, expr: '`' + parts.join('') + '`' });
+        if (last < t.length) parts.push(t.slice(last).replaceAll('`', '\\`'));
+        directives.dynamicAttrs.push({
+          name: attrName,
+          expr: '`' + parts.join('') + '`',
+        });
       } else {
         const escaped = t.replaceAll("'", String.raw`\'`);
-        directives.dynamicAttrs.push({ name: attrName, expr: "'" + escaped + "'" });
+        directives.dynamicAttrs.push({
+          name: attrName,
+          expr: "'" + escaped + "'",
+        });
       }
       directives.skip.add(key);
       directives.skip.add(attrName);
@@ -251,14 +285,18 @@ export function parseDirectives(attrs: Record<string, string>, sourceDir = ''): 
  * Output: { fn: "template.default", params: { model: "item", title: "item.title" } }
  */
 function parseCallExpr(raw: string): CallDescriptor {
-  const inner = raw.trim().replace(/^\$\{([\s\S]+)\}$/, '$1').trim();
+  const inner = raw
+    .trim()
+    .replace(/^\$\{([\s\S]+)\}$/, '$1')
+    .trim();
   const atIdx = inner.indexOf('@');
   const fn = (atIdx === -1 ? inner : inner.slice(0, atIdx)).trim();
 
   const params: Record<string, string> = {};
   if (atIdx !== -1) {
     const optStr = inner.slice(atIdx + 1);
-    const valueRe = /(\w+)\s*=\s*((?:'(?:\\.|[^'\\])*'|"(?:\\.|[^"\\])*"|\$\{(?:[^{}]|\{[^{}]*\})*\}|\[[^\]]*\]|[^,}])+)/g; // NOSONAR -- inherent complexity of HTL value parsing
+    const valueRe =
+      /(\w+)\s*=\s*((?:'(?:\\.|[^'\\])*'|"(?:\\.|[^"\\])*"|\$\{(?:[^{}]|\{[^{}]*\})*\}|\[[^\]]*\]|[^,}])+)/g; // NOSONAR -- inherent complexity of HTL value parsing
     for (const m of optStr.matchAll(valueRe)) {
       params[m[1].trim()] = convertExpr(m[2].trim());
     }

@@ -24,7 +24,7 @@ Examples:
 }
 
 const watchMode = args.includes('--watch') || args.includes('-w');
-const patternArg = args.find(a => !a.startsWith('-'));
+const patternArg = args.find((a) => !a.startsWith('-'));
 
 if (!patternArg) {
   console.error('Error: no glob pattern provided.');
@@ -39,7 +39,9 @@ function processFile(file: string): void {
     const output = transpile(source, { filename: file });
     const outFile = file.replace(/\.html$/, '.template.js');
     fs.writeFileSync(outFile, output, 'utf8');
-    console.log(`✓  ${path.relative(process.cwd(), file)} → ${path.basename(outFile)}`);
+    console.log(
+      `✓  ${path.relative(process.cwd(), file)} → ${path.basename(outFile)}`
+    );
   } catch (err: any) {
     console.error(`✗  ${path.relative(process.cwd(), file)}: ${err.message}`);
   }

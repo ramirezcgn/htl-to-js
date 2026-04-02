@@ -25,7 +25,9 @@ function htlLoader(this: any, source: string): string {
   try {
     return transpile(source, { filename: this.resourcePath, ...options });
   } catch (err: any) {
-    this.emitError(new Error(`[htl-to-js] ${this.resourcePath}: ${err.message}`));
+    this.emitError(
+      new Error(`[htl-to-js] ${this.resourcePath}: ${err.message}`)
+    );
     return 'module.exports = {};';
   }
 }

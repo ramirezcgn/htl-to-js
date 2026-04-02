@@ -2317,6 +2317,57 @@ describe('transpile — AEM composition with separated config', () => {
       '<span class="aem-GridColumn aem-GridColumn--default--12">bare</span>'
     );
   });
+
+  it('childClass applies to all root children, not just the first', () => {
+    const src = `<sly data-sly-resource="\${'grid' @ resourceType='mysite/components/responsivegrid'}"></sly>`;
+    const code = transpile(src, {
+      filename: 'test.html',
+      resourceWrappers: {
+        'mysite/components/responsivegrid': {
+          wrapper: 'aem-Grid aem-Grid--12',
+          childClass: 'aem-GridColumn aem-GridColumn--default--12',
+        },
+      },
+    });
+    const mod: any = {};
+    new Function('module', code)(mod);
+    const fn = Object.values(mod.exports)[0] as Function;
+    const html = fn({
+      _includes: {
+        grid: () =>
+          '<div class="column">A</div><div class="column">B</div><div class="column">C</div>',
+      },
+    });
+    expect(html).toContain('<div class="aem-Grid aem-Grid--12">');
+    // All three children should have childClass
+    const matches = html.match(/aem-GridColumn aem-GridColumn--default--12/g);
+    expect(matches).toHaveLength(3);
+    expect(html).toContain('<div class="column aem-GridColumn aem-GridColumn--default--12">A</div>');
+    expect(html).toContain('<div class="column aem-GridColumn aem-GridColumn--default--12">B</div>');
+    expect(html).toContain('<div class="column aem-GridColumn aem-GridColumn--default--12">C</div>');
+  });
+
+  it('childClass applies to root children without existing class', () => {
+    const src = `<sly data-sly-resource="\${'grid' @ resourceType='mysite/components/responsivegrid'}"></sly>`;
+    const code = transpile(src, {
+      filename: 'test.html',
+      resourceWrappers: {
+        'mysite/components/responsivegrid': {
+          childClass: 'aem-GridColumn',
+        },
+      },
+    });
+    const mod: any = {};
+    new Function('module', code)(mod);
+    const fn = Object.values(mod.exports)[0] as Function;
+    const html = fn({
+      _includes: {
+        grid: () => '<div>A</div><span>B</span>',
+      },
+    });
+    expect(html).toContain('<div class="aem-GridColumn">A</div>');
+    expect(html).toContain('<span class="aem-GridColumn">B</span>');
+  });
 });
 
 // ---------------------------------------------------------------------------

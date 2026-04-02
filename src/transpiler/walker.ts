@@ -30,15 +30,12 @@ export interface WalkerContext {
   definedVars: Set<string>;
   localTemplates: Record<string, string>;
   fileOverrides: Record<string, string>;
-  fileOverrideResourceTypes: Record<string, string>;
-  varResourceTypes: Record<string, string>;
 }
 
 export function createContext(
   omitAttrs: RegExp[] = [],
   sourceDir = '',
   fileOverrides: Record<string, string> = {},
-  fileOverrideResourceTypes: Record<string, string> = {}
 ): WalkerContext {
   return {
     uses: {},
@@ -51,8 +48,6 @@ export function createContext(
     definedVars: new Set(),
     localTemplates: {},
     fileOverrides,
-    fileOverrideResourceTypes,
-    varResourceTypes: {},
   };
 }
 
@@ -114,13 +109,9 @@ function processElement(node: any, ctx: WalkerContext): string {
       ctx.uses[varName] = filePath;
       ctx.useDefaults[varName] =
         ctx.fileOverrides[filePath] ?? ctx.fileOverrides[basename];
-      const rt =
-        ctx.fileOverrideResourceTypes[filePath] ??
-        ctx.fileOverrideResourceTypes[basename];
-      if (rt) ctx.varResourceTypes[varName] = rt;
     }
   }
-  // Also check dir.use for .html values that didn't resolve on disk but match fileOverrides
+
   for (const [varName, useVal] of Object.entries(dir.use)) {
     const trimmed = String(useVal).trim();
     if (trimmed.endsWith('.html')) {
@@ -129,17 +120,18 @@ function processElement(node: any, ctx: WalkerContext): string {
         ctx.fileOverrides[trimmed] ?? ctx.fileOverrides[basename];
       if (override) {
         ctx.useDefaults[varName] = override;
-        const rt =
-          ctx.fileOverrideResourceTypes[trimmed] ??
-          ctx.fileOverrideResourceTypes[basename];
-        if (rt) ctx.varResourceTypes[varName] = rt;
       }
     }
   }
 
   if (dir.test) addRootRefs(dir.test, ctx.refs);
   if (dir.text) addRootRefs(dir.text, ctx.refs);
-  if (dir.resource) addRootRefs(dir.resource, ctx.refs);
+  if (dir.resource) {
+    if (/^\w+$/.test(dir.resource) && !ctx.definedVars.has(dir.resource) && !ctx.uses[dir.resource]) {
+      dir.resource = `'${dir.resource}'`;
+    }
+    addRootRefs(dir.resource, ctx.refs);
+  }
   if (dir.element) addRootRefs(dir.element, ctx.refs);
   if (dir.unwrap != null) addRootRefs(dir.unwrap, ctx.refs);
   if (dir.repeat) addRootRefs(dir.repeat.listExpr, ctx.refs);
@@ -171,8 +163,6 @@ function processElement(node: any, ctx: WalkerContext): string {
         definedVars: ctx.definedVars,
         localTemplates: ctx.localTemplates,
         fileOverrides: ctx.fileOverrides,
-        fileOverrideResourceTypes: ctx.fileOverrideResourceTypes,
-        varResourceTypes: ctx.varResourceTypes,
       }
     : ctx;
 
@@ -218,14 +208,6 @@ function processElement(node: any, ctx: WalkerContext): string {
     if (!callContent) {
       const extraParams = paramsStr ? `${paramsStr}, _includes` : '_includes';
       callContent = `\${${fn}?.({ ${extraParams} }) ?? ''}`;
-    }
-
-    if (callObjName) {
-      const rt = ctx.varResourceTypes[callObjName];
-      if (rt) {
-        const inner = callContent.slice(2, -1);
-        callContent = `\${_wrapResource('${rt}', ${inner}, Object.assign({}, _staticResourceWrappers ?? {}, _resourceWrappers), '${rt}')}`;
-      }
     }
 
     if (node.name !== 'sly') {

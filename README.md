@@ -523,26 +523,35 @@ options: {
 }
 ```
 
-**Object value with `resourceType`** — additionally wraps the `data-sly-call` output with the matching `resourceWrappers` config:
+**Object value with `htl`** — provides HTL content that is transpiled inline (no file on disk needed). The templates are compiled and inlined into the output module:
 
 ```js
 options: {
-  resourceWrappers: {
-    'mysite/components/responsivegrid': {
-      wrapper: 'aem-Grid aem-Grid--12 aem-Grid--default--12',
-      childClass: 'aem-GridColumn aem-GridColumn--default--12',
-    },
-  },
   fileOverrides: {
     'responsiveGrid.html': {
-      expression: "{ responsiveGrid: ({ container, _includes }) => _includes?.content?.() ?? '' }",
-      resourceType: 'mysite/components/responsivegrid',
+      htl: `<template data-sly-template.responsiveGrid="\${ @ container }">
+        <div id="\${container.id}" class="cmp-container">
+          <sly data-sly-resource="\${'content' @ resourceType='wcm/foundation/components/responsivegrid'}"></sly>
+        </div>
+      </template>`,
     },
   },
 }
 ```
 
-The `resourceType` links the file override to a `resourceWrappers` entry. The transpiler wraps the call output with `_wrapResource()`, applying the grid wrapper and `childClass` automatically — the same helper used for `data-sly-resource`.
+The HTL content must contain `data-sly-template` definitions. The transpiler compiles them and generates the functions at module scope. Since the template uses `data-sly-resource` with `@resourceType`, the `resourceWrappers` config applies automatically inside the template.
+
+**Object value with `expression`** — provides a raw JS expression string instead of HTL:
+
+```js
+options: {
+  fileOverrides: {
+    'responsiveGrid.html': {
+      expression: "{ responsiveGrid: ({ container, _includes }) => _includes?.content?.() ?? '' }",
+    },
+  },
+}
+```
 
 When the transpiler encounters `data-sly-use.tpl="responsiveGrid.html"`, instead of generating a `require()` call, it uses the provided value as the default for the `tpl` parameter. The `data-sly-call="${tpl.responsiveGrid @ ...}"` then calls the function directly.
 
@@ -570,7 +579,7 @@ Combining `wrapperClass`, `resourceWrappers`, `modelTransforms`, and `fileOverri
 const options = {
   wrapperClass: true,
   resourceWrappers: {
-    'mysite/components/responsivegrid': {
+    'wcm/foundation/components/responsivegrid': {
       wrapper: 'aem-Grid aem-Grid--12 aem-Grid--default--12',
       childClass: 'aem-GridColumn aem-GridColumn--default--12',
     },
@@ -582,8 +591,11 @@ const options = {
   },
   fileOverrides: {
     'responsiveGrid.html': {
-      expression: "{ responsiveGrid: ({ container, _includes }) => _includes?.content?.() ?? '' }",
-      resourceType: 'mysite/components/responsivegrid',
+      htl: `<template data-sly-template.responsiveGrid="\${ @ container }">
+        <div id="\${container.id}" class="cmp-container">
+          <sly data-sly-resource="\${'content' @ resourceType='wcm/foundation/components/responsivegrid'}"></sly>
+        </div>
+      </template>`,
     },
   },
 };
@@ -626,10 +638,12 @@ export const Default = {
 **Rendered HTML:**
 
 ```html
-<div class="container">                                    <!-- wrapperClass -->
-  <div class="aem-Grid aem-Grid--12 aem-Grid--default--12"> <!-- resourceWrappers.wrapper via fileOverrides.resourceType -->
-    <div class="cmp-column aem-GridColumn aem-GridColumn--default--12"> <!-- resourceWrappers.childClass -->
-      Sample Text
+<div class="container">                                      <!-- wrapperClass -->
+  <div class="cmp-container">                                  <!-- from responsiveGrid.html htl template -->
+    <div class="aem-Grid aem-Grid--12 aem-Grid--default--12">  <!-- resourceWrappers.wrapper -->
+      <div class="cmp-column aem-GridColumn aem-GridColumn--default--12"> <!-- resourceWrappers.childClass -->
+        Sample Text
+      </div>
     </div>
   </div>
 </div>
@@ -640,9 +654,9 @@ Each option has a single responsibility:
 | Option | Responsibility |
 |---|---|
 | `wrapperClass` | Component wrapper `<div>` with CSS class |
-| `resourceWrappers` | Wraps output with grid/column divs (used by both `data-sly-resource` and `fileOverrides` with `resourceType`) |
+| `resourceWrappers` | Wraps `data-sly-resource` output with grid/column divs |
 | `modelTransforms` | Model property defaults (e.g. `layout: 'RESPONSIVE_GRID'`) |
-| `fileOverrides` | Replaces `data-sly-use="file.html"` with JS functions; `resourceType` links to `resourceWrappers` |
+| `fileOverrides` | Replaces `data-sly-use="file.html"` with inline HTL or JS expressions |
 
 ---
 

@@ -46,7 +46,7 @@ interface TranspileOptions {
   >;
   fileOverrides?: Record<
     string,
-    string | { expression: string; resourceType: string }
+    string | { expression?: string; htl?: string }
   >;
 }
 
@@ -94,13 +94,19 @@ export function transpile(
   const sourceDir = path.dirname(path.resolve(filename));
 
   const serializedFileOverrides: Record<string, string> = {};
-  const fileOverrideResourceTypes: Record<string, string> = {};
+  const inlinedDeclarations: string[] = [];
   for (const [key, val] of Object.entries(fileOverrides)) {
     if (typeof val === 'string') {
       serializedFileOverrides[key] = val;
-    } else {
+    } else if (val.htl) {
+      const { declarations, expression } = transpileInlineHtl(
+        val.htl, omitAttrs, sourceDir, modelTransforms,
+        serializedFileOverrides,
+      );
+      inlinedDeclarations.push(declarations);
+      serializedFileOverrides[key] = expression;
+    } else if (val.expression) {
       serializedFileOverrides[key] = val.expression;
-      if (val.resourceType) fileOverrideResourceTypes[key] = val.resourceType;
     }
   }
 
@@ -112,7 +118,6 @@ export function transpile(
       sourceDir,
       modelTransforms,
       serializedFileOverrides,
-      fileOverrideResourceTypes
     );
   } else {
     body = transpileSingleTemplate(
@@ -123,7 +128,6 @@ export function transpile(
       modelTransforms,
       wrapperClass,
       serializedFileOverrides,
-      fileOverrideResourceTypes
     );
   }
 
@@ -148,9 +152,58 @@ export function transpile(
   ].join('\n');
 
   const resourceWrapperDecl = `const _staticResourceWrappers = ${JSON.stringify(resourceWrappers ?? {})};\n`;
+  const inlinedCode = inlinedDeclarations.length
+    ? inlinedDeclarations.join('\n\n') + '\n\n'
+    : '';
   return (
-    banner + helpers + resourceWrapperDecl + restoreVarCasing(body, restoreMap)
+    banner + helpers + resourceWrapperDecl + inlinedCode + restoreVarCasing(body, restoreMap)
   );
+}
+
+// ---------------------------------------------------------------------------
+// Inline HTL transpilation for fileOverrides with htl content
+// ---------------------------------------------------------------------------
+
+function transpileInlineHtl(
+  htlSource: string,
+  omitAttrs: RegExp[],
+  sourceDir: string,
+  modelTransforms: Record<string, Record<string, string>>,
+  fileOverrides: Record<string, string>,
+): { declarations: string; expression: string } {
+  const expandedSource = htlSource.replaceAll(
+    /<sly\b([^>]*?)\/>/g,
+    '<sly$1></sly>'
+  );
+  const { normalized, restoreMap } = normalizeSetVarCasing(expandedSource);
+  const document = parseDocument(normalized);
+  const originalTemplateNames = extractOriginalTemplateNames(normalized);
+  const templates = findNamedTemplates(document, originalTemplateNames);
+
+  if (templates.length === 0) {
+    throw new Error(
+      'fileOverrides htl content must contain data-sly-template definitions'
+    );
+  }
+
+  const rawBody = transpileNamedTemplates(
+    templates,
+    omitAttrs,
+    sourceDir,
+    modelTransforms,
+    fileOverrides,
+  );
+
+  const declarations = restoreVarCasing(
+    rawBody.replace(/\n\nmodule\.exports\s*=\s*\{[^}]*\};/, ''),
+    restoreMap,
+  );
+
+  const mapping = templates
+    .map(({ name }) => `${name}: ${toPascalFnName('create', name)}`)
+    .join(', ');
+
+  return { declarations, expression: `{ ${mapping} }` };
 }
 
 // ---------------------------------------------------------------------------
@@ -200,7 +253,6 @@ function transpileNamedTemplates(
   sourceDir: string,
   modelTransforms: Record<string, Record<string, string>> = {},
   fileOverrides: Record<string, string> = {},
-  fileOverrideResourceTypes: Record<string, string> = {}
 ): string {
   const localTemplates: Record<string, string> = Object.fromEntries(
     templates.map(({ name }) => [name, toPascalFnName('create', name)])
@@ -211,7 +263,6 @@ function transpileNamedTemplates(
       omitAttrs,
       sourceDir,
       fileOverrides,
-      fileOverrideResourceTypes
     );
     Object.assign(ctx.localTemplates, localTemplates);
     for (const n of Object.keys(localTemplates)) ctx.definedVars.add(n);
@@ -271,13 +322,11 @@ function transpileSingleTemplate(
   modelTransforms: Record<string, Record<string, string>> = {},
   wrapperClass?: string | boolean,
   fileOverrides: Record<string, string> = {},
-  fileOverrideResourceTypes: Record<string, string> = {}
 ): string {
   const ctx = createContext(
     omitAttrs,
     sourceDir,
     fileOverrides,
-    fileOverrideResourceTypes
   );
   let body = walkNodes(document.children, ctx);
   const fnName = toPascalFnName('create', deriveBaseName(filename));

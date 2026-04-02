@@ -675,6 +675,24 @@ describe('transpile — data-sly-resource', () => {
     const out = transpile(src, { filename: 'test.html' });
     expect(out).toContain('model?.path');
   });
+
+  it('treats bare undefined variable as string literal key', () => {
+    const src = `<sly data-sly-resource="\${resource @ resourceType='wcm/foundation/components/responsivegrid'}"></sly>`;
+    const code = transpile(src, {
+      filename: 'test.html',
+      resourceWrappers: {
+        'wcm/foundation/components/responsivegrid': 'aem-Grid',
+      },
+    });
+    // Should use 'resource' as string key, not as a variable
+    expect(code).toContain("'resource'");
+    const mod: any = {};
+    new Function('module', code)(mod);
+    const fn = Object.values(mod.exports)[0] as Function;
+    const html = fn({ _includes: { resource: () => '<p>Content</p>' } });
+    expect(html).toContain('<div class="aem-Grid">');
+    expect(html).toContain('<p>Content</p>');
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -2377,7 +2395,7 @@ describe('transpile — fileOverrides', () => {
     expect(code).not.toContain('require(');
   });
 
-  it('wraps call output with resourceWrappers when fileOverride has resourceType', () => {
+  it('htl content is transpiled inline and used as override', () => {
     const src = [
       '<sly data-sly-use.container="com.example.LayoutContainer">',
       '  <sly data-sly-use.gridTpl="responsiveGrid.html"',
@@ -2386,35 +2404,35 @@ describe('transpile — fileOverrides', () => {
     ].join('\n');
     const code = transpile(src, {
       filename: 'container.html',
-      resourceWrappers: {
-        'mysite/components/responsivegrid': {
-          wrapper: 'aem-Grid aem-Grid--12',
-          childClass: 'aem-GridColumn aem-GridColumn--default--12',
-        },
-      },
       fileOverrides: {
         'responsiveGrid.html': {
-          expression:
-            "{ responsiveGrid: ({ container, _includes }) => _includes?.content?.() ?? '' }",
-          resourceType: 'mysite/components/responsivegrid',
+          htl: [
+            '<template data-sly-template.responsiveGrid="${ @ container }">',
+            '  <div id="${container.id}" class="cmp-container">',
+            '    <sly data-sly-resource="${\'content\'}"></sly>',
+            '  </div>',
+            '</template>',
+          ].join('\n'),
         },
       },
     });
+    // Should NOT contain require() calls
+    expect(code).not.toContain('require(');
+    // Should contain the inlined function
+    expect(code).toContain('createResponsiveGrid');
+
     const mod: any = {};
     new Function('module', code)(mod);
     const fn = Object.values(mod.exports)[0] as Function;
     const html = fn({
-      _includes: { content: () => '<div class="child">OK</div>' },
+      container: { id: 'cq-1' },
+      _includes: { content: () => '<p>Hello</p>' },
     });
-    // resourceWrappers should wrap the call output
-    expect(html).toContain('aem-Grid aem-Grid--12');
-    expect(html).toContain('aem-GridColumn aem-GridColumn--default--12');
-    expect(html).toContain(
-      '<div class="child aem-GridColumn aem-GridColumn--default--12">OK</div>'
-    );
+    expect(html).toContain('<div id="cq-1" class="cmp-container">');
+    expect(html).toContain('<p>Hello</p>');
   });
 
-  it('resourceType wrapping works with wrapperClass for full composition', () => {
+  it('htl content with data-sly-resource triggers resourceWrappers', () => {
     const src = [
       '<sly data-sly-use.container="com.example.LayoutContainer">',
       '  <sly data-sly-use.gridTpl="responsiveGrid.html"',
@@ -2425,29 +2443,38 @@ describe('transpile — fileOverrides', () => {
       filename: '/apps/mysite/container/container.html',
       wrapperClass: true,
       resourceWrappers: {
-        'mysite/components/responsivegrid': {
+        'wcm/foundation/components/responsivegrid': {
           wrapper: 'aem-Grid aem-Grid--12',
           childClass: 'aem-GridColumn',
         },
       },
       fileOverrides: {
         'responsiveGrid.html': {
-          expression:
-            "{ responsiveGrid: ({ container, _includes }) => _includes?.content?.() ?? '' }",
-          resourceType: 'mysite/components/responsivegrid',
+          htl: [
+            '<template data-sly-template.responsiveGrid="${ @ container }">',
+            '  <div id="${container.id}" class="cmp-container">',
+            '    <sly data-sly-resource="${\'content\' @ resourceType=\'wcm/foundation/components/responsivegrid\'}"></sly>',
+            '  </div>',
+            '</template>',
+          ].join('\n'),
         },
       },
     });
     const mod: any = {};
     new Function('module', code)(mod);
     const fn = Object.values(mod.exports)[0] as Function;
-    const html = fn({ _includes: { content: () => '<div>Column</div>' } });
-    // wrapper from wrapperClass
+    const html = fn({
+      container: { id: 'cq-1' },
+      _includes: { content: () => '<div class="cmp-column">Text</div>' },
+    });
+    // wrapperClass on parent
     expect(html).toContain('<div class="container">');
-    // grid wrapper from resourceWrappers via fileOverride resourceType
+    // cmp-container from the inline template
+    expect(html).toContain('<div id="cq-1" class="cmp-container">');
+    // resourceWrappers grid wrapper
     expect(html).toContain('<div class="aem-Grid aem-Grid--12">');
-    // childClass injected
-    expect(html).toContain('<div class="aem-GridColumn">Column</div>');
+    // resourceWrappers childClass injected
+    expect(html).toContain('<div class="cmp-column aem-GridColumn">Text</div>');
   });
 });
 

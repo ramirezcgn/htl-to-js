@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<jcr:root xmlns:jcr="http://www.jcp.org/jcr/1.0"
+          xmlns:sling="http://sling.apache.org/jcr/sling/1.0"
+          xmlns:mix="http://www.jcp.org/jcr/mix/1.0"
+          jcr:primaryType="sling:Folder"
+          jcr:language="es"
+          jcr:mixinTypes="[mix:language]">
+  <Read_more
+      jcr:primaryType="sling:MessageEntry"
+      sling:key="Read more"
+      sling:message="Leer más"/>
+  <Go_home
+      jcr:primaryType="sling:MessageEntry"
+      sling:key="Go home"
+      sling:message="Ir al inicio"/>
+  <Title
+      jcr:primaryType="sling:MessageEntry"
+      sling:key="Title"
+      sling:message="Título"/>
+</jcr:root>

@@ -1,3 +1,5 @@
+import fs from 'fs';
+import path from 'path';
 import { transpile, generateDts } from '../src/transpiler/index';
 import { parseI18nXml } from '../src/parseI18nXml';
 import {
@@ -1192,6 +1194,18 @@ describe('convertExpr — i18n dictionary', () => {
   it('does not generate lookup when @ i18n is absent', () => {
     expect(convertExpr("'Hello'")).toBe("'Hello'");
   });
+
+  it('generates dynamic lookup for a variable expression', () => {
+    expect(convertExpr('label @ i18n')).toBe('_i18n?.[label] ?? label');
+  });
+
+  it('generates dynamic lookup for a variable combined with other options', () => {
+    expect(convertExpr("label @ i18n, context='html'")).toBe('_i18n?.[label] ?? label');
+  });
+
+  it('generates dynamic lookup for a dotted expression', () => {
+    expect(convertExpr('model.key @ i18n')).toBe('_i18n?.[model?.key] ?? model?.key');
+  });
 });
 
 describe('transpile — i18n dictionary', () => {
@@ -1251,6 +1265,44 @@ describe('transpile — i18n dictionary', () => {
     const html = fn({ _i18n: { Title: 'Título', Description: 'Descripción' } });
     expect(html).toContain('Título');
     expect(html).toContain('Descripción');
+  });
+
+  it('translates a variable i18n expression at runtime', () => {
+    // model.label is the idiomatic pattern — model is an AEM implicit, always detected
+    const src = `<span>\${model.label @ i18n}</span>`;
+    const code = transpile(src, { filename: 'test.html' });
+    const mod: any = {};
+    new Function('module', code)(mod);
+    const fn = Object.values(mod.exports)[0] as Function;
+    const html = fn({ model: { label: 'Read more' }, _i18n: { 'Read more': 'Leer más' } });
+    expect(html).toContain('Leer más');
+    expect(html).not.toContain('Read more');
+  });
+
+  it('falls back to original variable value for variable i18n when key is missing', () => {
+    const src = `<span>\${model.label @ i18n}</span>`;
+    const code = transpile(src, { filename: 'test.html' });
+    const mod: any = {};
+    new Function('module', code)(mod);
+    const fn = Object.values(mod.exports)[0] as Function;
+    const html = fn({ model: { label: 'Read more' }, _i18n: {} });
+    expect(html).toContain('Read more');
+  });
+
+  it('adds _i18n as a parameter when a variable @ i18n is used', () => {
+    const src = `<span>\${model.label @ i18n}</span>`;
+    const code = transpile(src, { filename: 'test.html' });
+    expect(code).toContain('_i18n');
+  });
+
+  it('translates variable i18n expression in an attribute', () => {
+    const src = `<a title="\${model.label @ i18n}" href="/">link</a>`;
+    const code = transpile(src, { filename: 'test.html' });
+    const mod: any = {};
+    new Function('module', code)(mod);
+    const fn = Object.values(mod.exports)[0] as Function;
+    const html = fn({ model: { label: 'Go home' }, _i18n: { 'Go home': 'Ir al inicio' } });
+    expect(html).toContain('Ir al inicio');
   });
 });
 
@@ -2860,5 +2912,63 @@ describe('transpile — i18nDict option', () => {
     new Function('module', code)(mod);
     const fn = Object.values(mod.exports)[0] as Function;
     expect(fn({})).toContain('Submit');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// parseI18nXml + transpile — end-to-end with a real XML file on disk
+// ---------------------------------------------------------------------------
+
+describe('i18n — end-to-end from XML file', () => {
+  const xmlPath = path.resolve(__dirname, 'fixtures/es.xml');
+  const dict = parseI18nXml(fs.readFileSync(xmlPath, 'utf8'));
+
+  it('parses the fixture XML into the expected dictionary', () => {
+    expect(dict).toEqual({
+      'Read more': 'Leer más',
+      'Go home': 'Ir al inicio',
+      'Title': 'Título',
+    });
+  });
+
+  it('bakes the XML dict into the generated module and translates at runtime', () => {
+    const src = `<div><h1>${'$'}{'Title' @ i18n}</h1><a href="/">${'$'}{'Read more' @ i18n}</a></div>`;
+    const code = transpile(src, { filename: 'test.html', i18nDict: dict });
+    const mod: any = {};
+    new Function('module', code)(mod);
+    const fn = Object.values(mod.exports)[0] as Function;
+    const html = fn({});
+    expect(html).toContain('Título');
+    expect(html).toContain('Leer más');
+    expect(html).not.toContain('>Title<');
+    expect(html).not.toContain('>Read more<');
+  });
+
+  it('translates a variable i18n expression using the XML dict', () => {
+    const src = `<span>${'$'}{model.label @ i18n}</span>`;
+    const code = transpile(src, { filename: 'test.html', i18nDict: dict });
+    const mod: any = {};
+    new Function('module', code)(mod);
+    const fn = Object.values(mod.exports)[0] as Function;
+    const html = fn({ model: { label: 'Read more' } });
+    expect(html).toContain('Leer más');
+  });
+
+  it('allows runtime _i18n to override the XML-baked dict', () => {
+    const src = `<span>${'$'}{'Title' @ i18n}</span>`;
+    const code = transpile(src, { filename: 'test.html', i18nDict: dict });
+    const mod: any = {};
+    new Function('module', code)(mod);
+    const fn = Object.values(mod.exports)[0] as Function;
+    expect(fn({ _i18n: { Title: 'Titolo' } })).toContain('Titolo');
+  });
+
+  it('falls back to the original string for keys not in the XML dict', () => {
+    const src = `<span>${'$'}{'Subscribe' @ i18n}</span>`;
+    const code = transpile(src, { filename: 'test.html', i18nDict: dict });
+    const mod: any = {};
+    new Function('module', code)(mod);
+    const fn = Object.values(mod.exports)[0] as Function;
+    expect(fn({})).toContain('Subscribe');
   });
 });

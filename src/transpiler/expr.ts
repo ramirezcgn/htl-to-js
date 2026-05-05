@@ -15,6 +15,7 @@ export function convertExpr(raw: string): string {
   }
 
   const i18nMatch = /^\s*(['"])([^'"]*?)\1\s*@\s*(?:.*,\s*)?i18n\b/.exec(inner);
+  const hasVarI18n = !i18nMatch && /@[^@]*\bi18n\b/.test(inner);
 
   inner = inner.replace(
     /^([\s\S]+?)\s*@\s*join\s*=\s*(?:'([^']*)'|"([^"]*)")/,
@@ -82,6 +83,9 @@ export function convertExpr(raw: string): string {
   if (i18nMatch) {
     const escapedKey = i18nMatch[2].replaceAll("'", String.raw`\'`);
     inner = "_i18n?.['" + escapedKey + "'] ?? " + inner;
+  }
+  if (hasVarI18n) {
+    inner = `_i18n?.[${inner}] ?? ${inner}`;
   }
   if (urlencodeMatch) {
     inner = `encodeURIComponent(${inner} ?? '')`;

@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-import { transpile } from './transpiler/index';
+import { transpile, generateDts } from './transpiler/index';
 import { glob } from 'glob';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -38,9 +38,11 @@ function processFile(file: string): void {
     const source = fs.readFileSync(file, 'utf8');
     const output = transpile(source, { filename: file });
     const outFile = file.replace(/\.html$/, '.template.js');
+    const dtsFile = file.replace(/\.html$/, '.template.d.ts');
     fs.writeFileSync(outFile, output, 'utf8');
+    fs.writeFileSync(dtsFile, generateDts(output), 'utf8');
     console.log(
-      `✓  ${path.relative(process.cwd(), file)} → ${path.basename(outFile)}`
+      `✓  ${path.relative(process.cwd(), file)} → ${path.basename(outFile)}, ${path.basename(dtsFile)}`
     );
   } catch (err: any) {
     console.error(`✗  ${path.relative(process.cwd(), file)}: ${err.message}`);

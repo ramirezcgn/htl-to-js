@@ -89,6 +89,7 @@ Both `data-sly-repeat` and `data-sly-list` support bare forms (without `.varName
 | HTL | Generated JS |
 |---|---|
 | `${expr @ context='html'}` | `${expr}` (context options stripped) |
+| `${expr @ context='urlencode'}` | `${encodeURIComponent(expr ?? '')}` (URL-encodes the value) |
 | `${'string' @ i18n}` | `${_i18n?.['string'] ?? 'string'}` (dictionary lookup) |
 | `${list.size}` | `${list.length}` |
 | `${obj.jcr:title}` | `${obj?.['jcr:title']}` |
@@ -226,21 +227,33 @@ module.exports = { createDefault };
 
 ```js
 // Generated
-${_includes?.['header']?.() ?? ''}
-${_includes?.[model?.path]?.() ?? ''}
+${_inc(_includes?.['header'])}
+${_inc(_includes?.[model?.path])}
 ```
 
-Pass content via `_includes` in your story args:
+Pass content via `_includes` in your story args. Both plain strings and functions are accepted:
 
 ```js
 export const Default = {
   args: {
     _includes: {
-      header: () => '<nav>Navigation</nav>',
+      header: '<nav>Navigation</nav>',         // plain string
+      sidebar: () => '<aside>Sidebar</aside>', // or a function
     }
   }
 }
 ```
+
+### `__slots__`
+
+When a template uses static `data-sly-resource` keys (string literals), the generated module also exports a `__slots__` array listing those keys. This allows parent components to discover which slots a child expects without importing and running the template:
+
+```js
+import { __slots__ } from '../header/header.template.js';
+// e.g. ['hero', 'footer']
+```
+
+Dynamic keys (expressions like `${model.path}`) are not included — only compile-time string literals appear in `__slots__`.
 
 ---
 
@@ -301,13 +314,13 @@ Generated:
 
 ```js
 // Literal path
-${_includes['./header.html']?.() ?? ''}
+${_inc(_includes?.['./header.html'])}
 
 // Dynamic path
-${_includes[model?.templatePath]?.() ?? ''}
+${_inc(_includes?.[model?.templatePath])}
 ```
 
-In the story:
+In the story, pass either a function (component factory) or a plain string:
 
 ```js
 import { createHeader } from '../header.html';
@@ -317,6 +330,7 @@ export const Default = {
     _includes: {
       './header.html': createHeader,
       './footer.html': () => '<footer>Footer content</footer>',
+      './banner.html': '<div class="banner">Static banner</div>', // plain string also works
     }
   }
 }
@@ -485,7 +499,7 @@ At runtime, the `_resourceWrappers` parameter can override or extend the static 
 
 Object mapping `data-sly-use` class-name patterns to property injections. Enables build-time property merging based on the use class. All keys are merged as computed properties into the model variable.
 
-**Example — set default model values:**
+**Example — set default model values (string expression):**
 
 ```js
 const modelTransforms = {
@@ -496,6 +510,22 @@ const modelTransforms = {
 ```
 
 Any component that uses `data-sly-use.x="com.example.LayoutContainer"` will get `layout` set to `'RESPONSIVE_GRID'` as default (can be overridden at runtime). The value is a JS expression string where `model` is replaced with the actual variable name.
+
+**Function values** — for cases where the expression depends on the variable name, a function `(varName: string) => string` can be used instead:
+
+```js
+const modelTransforms = {
+  'LayoutContainer': {
+    // Equivalent to the string form above
+    layout: () => "'RESPONSIVE_GRID'",
+
+    // The varName argument holds the actual use-binding identifier
+    id: (varName) => `${varName}?._internalId ?? ''`,
+  },
+};
+```
+
+The function receives the actual variable name (e.g. `container`) and must return a JS expression string. This is useful when the transform expression needs to reference the variable precisely.
 
 **Special key `_includes`** — computes `_includes` slot entries from model data. Unlike regular keys (which are merged into the model object), `_includes` is assigned to the `_includes` parameter directly. Runtime `_includes` take precedence over computed ones.
 
@@ -694,8 +724,12 @@ npx htl-gen --watch "components/**/*.html"
 Output files are placed next to the source:
 ```
 accordion.html  →  accordion.template.js
+                   accordion.template.d.ts
 card/default.html  →  card/default.template.js
+                      card/default.template.d.ts
 ```
+
+Each `.d.ts` file re-exports the function signatures from the generated module so TypeScript consumers get full type information without needing `declare module '*.html'` shims.
 
 ---
 

@@ -50,6 +50,8 @@ export function convertExpr(raw: string): string {
     return `__ARR${arrays.length - 1}__`;
   });
 
+  const urlencodeMatch = /\s*@\s*(?:.*,\s*)?context\s*=\s*['"]urlencode['"]/i.test(inner);
+
   const OPT_VAL = String.raw`(?:'[^']*'|"[^"]*"|__ARR\d+__|(?:[^,@}'"\n]|'[^']*'|"[^"]*")+)`;
   inner = inner
     .replaceAll(new RegExp(String.raw`\s*@\s*[\w]+\s*=\s*${OPT_VAL}`, 'g'), '')
@@ -80,6 +82,9 @@ export function convertExpr(raw: string): string {
   if (i18nMatch) {
     const escapedKey = i18nMatch[2].replaceAll("'", String.raw`\'`);
     inner = "_i18n?.['" + escapedKey + "'] ?? " + inner;
+  }
+  if (urlencodeMatch) {
+    inner = `encodeURIComponent(${inner} ?? '')`;
   }
   return inner;
 }

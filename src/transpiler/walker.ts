@@ -230,14 +230,14 @@ function processElement(node: any, ctx: WalkerContext): string {
       const literalPath = raw.replace(/^['"](.+)['"]$/, '$1');
       key = `['${literalPath}']`;
     }
-    const includeExpr = `_includes${key}?.() ?? ''`;
+    const includeExpr = `_inc(_includes?.[${key.slice(1, -1)}])`;
     return applyTest(dir.test, `\${${includeExpr}}`);
   }
 
   if (node.name === 'sly' && !dir.repeat) {
     const rtArg = dir.resourceType ? "'" + dir.resourceType + "'" : 'undefined';
     const children = dir.resource
-      ? `\${_wrapResource(${dir.resource}, _includes?.[${dir.resource}]?.() ?? '', Object.assign({}, _staticResourceWrappers ?? {}, _resourceWrappers), ${rtArg})}`
+      ? `\${_wrapResource(${dir.resource}, _inc(_includes?.[${dir.resource}]), Object.assign({}, _staticResourceWrappers ?? {}, _resourceWrappers), ${rtArg})}`
       : walkNodes(node.children, localCtx);
     return applyTest(dir.test, children);
   }
@@ -329,7 +329,7 @@ function buildInnerContent(
 ): string {
   if (dir.resource) {
     const rtArg = dir.resourceType ? "'" + dir.resourceType + "'" : 'undefined';
-    return `\${_wrapResource(${dir.resource}, _includes?.[${dir.resource}]?.() ?? '', Object.assign({}, _staticResourceWrappers ?? {}, _resourceWrappers), ${rtArg})}`;
+    return `\${_wrapResource(${dir.resource}, _inc(_includes?.[${dir.resource}]), Object.assign({}, _staticResourceWrappers ?? {}, _resourceWrappers), ${rtArg})}`;
   }
   if (dir.text) return `\${${dir.text}}`;
   return walkNodes(node.children, ctx);

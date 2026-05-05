@@ -38,7 +38,7 @@ const AEM_IMPLICITS: Record<string, string> = {
 interface TranspileOptions {
   filename?: string;
   omitAttrs?: RegExp[];
-  modelTransforms?: Record<string, Record<string, string>>;
+  modelTransforms?: Record<string, Record<string, string | ((varName: string) => string)>>;
   wrapperClass?: string | boolean;
   resourceWrappers?: Record<
     string,
@@ -136,6 +136,7 @@ export function transpile(
     `const _htlAttr = (v) => v == null ? '' : (typeof v === 'object' ? JSON.stringify(v).replace(/"/g, '&quot;') : String(v).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'));`,
     `const _htlDynAttr = (name, val) => { if (val == null || val === false) return ''; if (val === true) return ' ' + name; return ' ' + name + '="' + _htlAttr(val) + '"'; };`,
     `const _htlSpreadAttrs = (obj) => { if (!obj || typeof obj !== 'object') return ''; return Object.entries(obj).map(([k, v]) => _htlDynAttr(k, v)).join(''); };`,
+    `const _inc = (v) => typeof v === 'function' ? v() : String(v ?? '');`,
     `const _wrapResource = (key, html, wrappers, resourceType) => {`,
     `  const cfg = wrappers?.[key] ?? (resourceType ? wrappers?.[resourceType] : undefined); if (!cfg) return html;`,
     `  if (typeof cfg === 'string') return '<div class="' + cfg + '">' + html + '</div>';`,
@@ -166,8 +167,16 @@ export function transpile(
   const inlinedCode = inlinedDeclarations.length
     ? inlinedDeclarations.join('\n\n') + '\n\n'
     : '';
+  const finalBody = restoreVarCasing(body, restoreMap);
+  const slotsSet = new Set<string>();
+  for (const m of finalBody.matchAll(/_inc\(_includes\?\.\['([^']+)'\]\)/g)) {
+    slotsSet.add(m[1]);
+  }
+  const slotsLine = slotsSet.size
+    ? `\nObject.assign(module.exports, { __slots__: ${JSON.stringify([...slotsSet])} });\n`
+    : '';
   return (
-    banner + helpers + resourceWrapperDecl + inlinedCode + restoreVarCasing(body, restoreMap)
+    banner + helpers + resourceWrapperDecl + inlinedCode + finalBody + slotsLine
   );
 }
 
@@ -179,7 +188,7 @@ function transpileInlineHtl(
   htlSource: string,
   omitAttrs: RegExp[],
   sourceDir: string,
-  modelTransforms: Record<string, Record<string, string>>,
+  modelTransforms: Record<string, Record<string, string | ((varName: string) => string)>>,
   fileOverrides: Record<string, string>,
 ): { declarations: string; expression: string } {
   const expandedSource = htlSource.replaceAll(
@@ -262,7 +271,7 @@ function transpileNamedTemplates(
   templates: TemplateInfo[],
   omitAttrs: RegExp[],
   sourceDir: string,
-  modelTransforms: Record<string, Record<string, string>> = {},
+  modelTransforms: Record<string, Record<string, string | ((varName: string) => string)>> = {},
   fileOverrides: Record<string, string> = {},
 ): string {
   const localTemplates: Record<string, string> = Object.fromEntries(
@@ -330,7 +339,7 @@ function transpileSingleTemplate(
   filename: string,
   omitAttrs: RegExp[],
   sourceDir: string,
-  modelTransforms: Record<string, Record<string, string>> = {},
+  modelTransforms: Record<string, Record<string, string | ((varName: string) => string)>> = {},
   wrapperClass?: string | boolean,
   fileOverrides: Record<string, string> = {},
 ): string {
@@ -395,21 +404,21 @@ function buildFunctionBody(
  */
 function buildModelTransformDecls(
   uses: Record<string, string>,
-  modelTransforms: Record<string, Record<string, string>>
+  modelTransforms: Record<string, Record<string, string | ((varName: string) => string)>>
 ): string {
   if (!Object.keys(modelTransforms).length) return '';
   const lines: string[] = [];
   for (const [varName, useVal] of Object.entries(uses)) {
     for (const [classKey, props] of Object.entries(modelTransforms)) {
       if (String(useVal).includes(classKey)) {
+        const resolve = (v: string | ((n: string) => string)) =>
+          typeof v === 'function' ? v(varName) : String(v).replaceAll(/\bmodel\b/g, varName);
         const modelEntries = Object.entries(props).filter(
           ([k]) => !k.startsWith('_')
         );
         if (modelEntries.length) {
           const propsStr = modelEntries
-            .map(
-              ([k, v]) => `${k}: ${String(v).replaceAll(/\bmodel\b/g, varName)}`
-            )
+            .map(([k, v]) => `${k}: ${resolve(v)}`)
             .join(', ');
           lines.push(
             `  ${varName} = Object.assign({ ${propsStr} }, ${varName});`
@@ -417,7 +426,7 @@ function buildModelTransformDecls(
         }
         if (props._includes != null) {
           lines.push(
-            `  _includes = Object.assign(${String(props._includes).replaceAll(/\bmodel\b/g, varName)}, _includes);`
+            `  _includes = Object.assign(${resolve(props._includes)}, _includes);`
           );
         }
       }
@@ -432,6 +441,26 @@ function extractOriginalTemplateNames(source: string): Record<string, string> {
     map[m[1].toLowerCase()] = m[1];
   }
   return map;
+}
+
+export function generateDts(jsSource: string): string {
+  const lines: string[] = [];
+  for (const m of jsSource.matchAll(/const (create\w+) = \(\{((?:[^{}]|\{[^}]*\})*)\}\s*=\s*\{\}\)/g)) {
+    const fnName = m[1];
+    const paramBlock = m[2];
+    const paramNames = paramBlock
+      .split(',')
+      .map((p) => p.replace(/\s*=[\s\S]*/g, '').trim())
+      .filter((p) => /^\w+$/.test(p));
+    const propList = paramNames.map((p) => `${p}?: any`).join('; ');
+    const propsType = paramNames.length ? `{ ${propList} }` : 'Record<string, any>';
+    lines.push(`export declare function ${fnName}(args?: ${propsType}): string;`);
+  }
+  const slotsMatch = /__slots__:\s*(\[[^\]]*\])/.exec(jsSource);
+  if (slotsMatch) {
+    lines.push(`export declare const __slots__: ${slotsMatch[1].replace(/"/g, "'")};`);
+  }
+  return lines.join('\n') + '\n';
 }
 
 const JS_RESERVED = new Set(['class', 'for']);

@@ -1,4 +1,4 @@
-import { transpile } from '../src/transpiler/index';
+import { transpile, generateDts } from '../src/transpiler/index';
 import {
   convertExpr,
   convertAttrValue,
@@ -328,7 +328,7 @@ describe('transpile — data-sly-include', () => {
   it('generates an _includes slot for literal paths', () => {
     const src = `<sly data-sly-include="./header.html"></sly>`;
     const out = transpile(src, { filename: 'test.html' });
-    expect(out).toContain("_includes['./header.html']?.()");
+    expect(out).toContain("_inc(_includes?.['./header.html'])");
   });
 
   it('adds _includes as a parameter', () => {
@@ -340,7 +340,7 @@ describe('transpile — data-sly-include', () => {
   it('handles dynamic include expressions', () => {
     const src = `<sly data-sly-include="\${model.template}"></sly>`;
     const out = transpile(src, { filename: 'test.html' });
-    expect(out).toContain('_includes[model?.template]?.()');
+    expect(out).toContain('_inc(_includes?.[model?.template])');
   });
 });
 
@@ -670,6 +670,16 @@ describe('transpile — data-sly-resource', () => {
     expect(html).toContain('<nav>Nav</nav>');
   });
 
+  it('accepts plain strings as _includes values (no function wrapper needed)', () => {
+    const src = `<div data-sly-resource="\${'header'}"></div>`;
+    const code = transpile(src, { filename: 'test.html' });
+    const mod: any = {};
+    new Function('module', code)(mod);
+    const fn = Object.values(mod.exports)[0] as Function;
+    const html = fn({ _includes: { header: '<nav>Nav</nav>' } });
+    expect(html).toContain('<nav>Nav</nav>');
+  });
+
   it('falls back to @path when main expression is empty', () => {
     const src = `<sly data-sly-resource="\${@ path=model.path}"></sly>`;
     const out = transpile(src, { filename: 'test.html' });
@@ -975,13 +985,13 @@ describe('transpile — self-closing <sly/> expansion', () => {
   it('handles self-closing sly with include', () => {
     const src = `<sly data-sly-include="./partial.html"/>`;
     const out = transpile(src, { filename: 'test.html' });
-    expect(out).toContain("_includes['./partial.html']?.()");
+    expect(out).toContain("_inc(_includes?.['./partial.html'])");;
   });
 
   it('handles self-closing sly with test', () => {
     const src = `<sly data-sly-test="\${model.show}" data-sly-include="./header.html"/>`;
     const out = transpile(src, { filename: 'test.html' });
-    expect(out).toContain("_includes['./header.html']?.()");
+    expect(out).toContain("_inc(_includes?.['./header.html'])");
     expect(out).toContain('model?.show');
   });
 });
@@ -2615,5 +2625,142 @@ describe('transpile — modelTransforms _includes', () => {
     const html = fn({ _includes: { extra: () => '<i>runtime</i>' } });
     expect(html).toContain('<b>computed</b>');
     expect(html).toContain('<i>runtime</i>');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// @ urlencode context
+// ---------------------------------------------------------------------------
+
+describe('convertExpr — @ urlencode', () => {
+  it('wraps expression in encodeURIComponent', () => {
+    expect(convertExpr("model.path @ context='urlencode'")).toBe(
+      "encodeURIComponent(model?.path ?? '')"
+    );
+  });
+
+  it('works with uppercase URLENCODE', () => {
+    expect(convertExpr("model.path @ context='URLENCODE'")).toBe(
+      "encodeURIComponent(model?.path ?? '')"
+    );
+  });
+
+  it('encodes dynamic values at runtime', () => {
+    const src = `<a href="/search?q=\${model.query @ context='urlencode'}">search</a>`;
+    const code = transpile(src, { filename: 'test.html' });
+    const mod: any = {};
+    new Function('module', code)(mod);
+    const fn = Object.values(mod.exports)[0] as Function;
+    const html = fn({ model: { query: 'hello world & more' } });
+    expect(html).toContain('hello%20world%20%26%20more');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// __slots__
+// ---------------------------------------------------------------------------
+
+describe('transpile — __slots__', () => {
+  it('exports static slot keys', () => {
+    const src = `<sly data-sly-resource="\${'header'}"></sly><sly data-sly-resource="\${'footer'}"></sly>`;
+    const code = transpile(src, { filename: 'test.html' });
+    const mod: any = {};
+    new Function('module', code)(mod);
+    expect(mod.exports.__slots__).toEqual(['header', 'footer']);
+  });
+
+  it('does not export __slots__ when there are no static slots', () => {
+    const src = `<div>\${model.title}</div>`;
+    const code = transpile(src, { filename: 'test.html' });
+    expect(code).not.toContain('__slots__');
+  });
+
+  it('does not include dynamic slot keys', () => {
+    const src = `<sly data-sly-resource="\${'header'}"></sly><sly data-sly-resource="\${model.path}"></sly>`;
+    const code = transpile(src, { filename: 'test.html' });
+    const mod: any = {};
+    new Function('module', code)(mod);
+    expect(mod.exports.__slots__).toEqual(['header']);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// generateDts
+// ---------------------------------------------------------------------------
+
+describe('generateDts', () => {
+  it('generates a declaration for a single export', () => {
+    const code = transpile('<div>${model.title}</div>', { filename: 'card.html' });
+    const dts = generateDts(code);
+    expect(dts).toContain('export declare function createCard(');
+    expect(dts).toContain('model?: any');
+  });
+
+  it('includes __slots__ declaration when present', () => {
+    const src = `<sly data-sly-resource="\${'header'}"></sly>`;
+    const code = transpile(src, { filename: 'test.html' });
+    const dts = generateDts(code);
+    expect(dts).toContain("export declare const __slots__: ['header'];");
+  });
+
+  it('generates declarations for multiple named templates', () => {
+    const src = `
+      <template data-sly-template.header="\${ @ title }"><h1>\${title}</h1></template>
+      <template data-sly-template.footer="\${ @ copy }"><footer>\${copy}</footer></template>`;
+    const code = transpile(src, { filename: 'test.html' });
+    const dts = generateDts(code);
+    expect(dts).toContain('export declare function createHeader(');
+    expect(dts).toContain('export declare function createFooter(');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// modelTransforms with functions
+// ---------------------------------------------------------------------------
+
+describe('transpile — modelTransforms with function values', () => {
+  it('calls function with varName to produce the expression', () => {
+    const src = `<div data-sly-use.model="com.example.MyModel">\${model.layout}</div>`;
+    const code = transpile(src, {
+      filename: 'test.html',
+      modelTransforms: {
+        MyModel: {
+          layout: (varName) => `'RESPONSIVE_GRID'`,
+        },
+      },
+    });
+    expect(code).toContain("layout: 'RESPONSIVE_GRID'");
+  });
+
+  it('injects the varName into function result', () => {
+    const src = `<div data-sly-use.container="com.example.LayoutContainer">\${container.id}</div>`;
+    const code = transpile(src, {
+      filename: 'test.html',
+      modelTransforms: {
+        LayoutContainer: {
+          id: (varName) => `${varName}?._id ?? 'default'`,
+        },
+      },
+    });
+    expect(code).toContain("id: container?._id ?? 'default'");
+  });
+
+  it('works at runtime with function-based modelTransforms', () => {
+    const src = `<div data-sly-use.model="com.example.Model" class="\${model.theme}"></div>`;
+    const code = transpile(src, {
+      filename: 'test.html',
+      modelTransforms: {
+        Model: {
+          theme: () => `'dark'`,
+        },
+      },
+    });
+    const mod: any = {};
+    new Function('module', code)(mod);
+    const fn = Object.values(mod.exports)[0] as Function;
+    // default from transform
+    expect(fn({ model: {} })).toContain('class="dark"');
+    // runtime override wins
+    expect(fn({ model: { theme: 'light' } })).toContain('class="light"');
   });
 });

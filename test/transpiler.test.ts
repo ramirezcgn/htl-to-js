@@ -1,4 +1,5 @@
 import { transpile, generateDts } from '../src/transpiler/index';
+import { parseI18nXml } from '../src/parseI18nXml';
 import {
   convertExpr,
   convertAttrValue,
@@ -2762,5 +2763,102 @@ describe('transpile — modelTransforms with function values', () => {
     expect(fn({ model: {} })).toContain('class="dark"');
     // runtime override wins
     expect(fn({ model: { theme: 'light' } })).toContain('class="light"');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// parseI18nXml
+// ---------------------------------------------------------------------------
+
+describe('parseI18nXml — JCR format', () => {
+  it('parses sling:key + sling:message pairs', () => {
+    const xml = `<?xml version="1.0" encoding="UTF-8"?>
+<jcr:root xmlns:sling="http://sling.apache.org/jcr/sling/1.0"
+          xmlns:jcr="http://www.jcp.org/jcr/1.0">
+  <Read_more
+      jcr:primaryType="sling:MessageEntry"
+      sling:key="Read more"
+      sling:message="Read more"/>
+  <Go_home
+      jcr:primaryType="sling:MessageEntry"
+      sling:key="Go home"
+      sling:message="Ir al inicio"/>
+</jcr:root>`;
+    expect(parseI18nXml(xml)).toEqual({
+      'Read more': 'Read more',
+      'Go home': 'Ir al inicio',
+    });
+  });
+
+  it('decodes XML entities in keys and values', () => {
+    const xml = `<jcr:root>
+  <n sling:key="Hello &amp; World" sling:message="Hola &amp; Mundo"/>
+</jcr:root>`;
+    expect(parseI18nXml(xml)).toEqual({ 'Hello & World': 'Hola & Mundo' });
+  });
+
+  it('strips {String} type prefix from sling:message', () => {
+    const xml = `<jcr:root>
+  <n sling:key="Title" sling:message="{String}Título"/>
+</jcr:root>`;
+    expect(parseI18nXml(xml)).toEqual({ Title: 'Título' });
+  });
+
+  it('falls back to entry format when no sling:key found', () => {
+    const xml = `<properties>
+  <entry key="Read more">Leer más</entry>
+  <entry key="Submit">Enviar</entry>
+</properties>`;
+    expect(parseI18nXml(xml)).toEqual({
+      'Read more': 'Leer más',
+      Submit: 'Enviar',
+    });
+  });
+
+  it('returns empty dict for unrecognized format', () => {
+    expect(parseI18nXml('<root><item>foo</item></root>')).toEqual({});
+  });
+});
+
+// ---------------------------------------------------------------------------
+// i18nDict option in transpile()
+// ---------------------------------------------------------------------------
+
+describe('transpile — i18nDict option', () => {
+  const dict = { 'Read more': 'Leer más', 'Go home': 'Ir al inicio' };
+
+  it('injects dict as _i18n default in generated function', () => {
+    const src = `<span>${'$'}{'Read more' @ i18n}</span>`;
+    const code = transpile(src, { filename: 'test.html', i18nDict: dict });
+    // default should contain the serialized dict
+    expect(code).toContain('"Read more":"Leer m\u00e1s"');
+  });
+
+  it('translates strings at runtime using built-in dict', () => {
+    const src = `<span>${'$'}{'Read more' @ i18n}</span>`;
+    const code = transpile(src, { filename: 'test.html', i18nDict: dict });
+    const mod: any = {};
+    new Function('module', code)(mod);
+    const fn = Object.values(mod.exports)[0] as Function;
+    // no _i18n arg — uses the baked-in default
+    expect(fn({})).toContain('Leer más');
+  });
+
+  it('allows runtime _i18n to override the built-in dict', () => {
+    const src = `<span>${'$'}{'Read more' @ i18n}</span>`;
+    const code = transpile(src, { filename: 'test.html', i18nDict: dict });
+    const mod: any = {};
+    new Function('module', code)(mod);
+    const fn = Object.values(mod.exports)[0] as Function;
+    expect(fn({ _i18n: { 'Read more': 'En savoir plus' } })).toContain('En savoir plus');
+  });
+
+  it('falls back to original string for missing keys', () => {
+    const src = `<span>${'$'}{'Submit' @ i18n}</span>`;
+    const code = transpile(src, { filename: 'test.html', i18nDict: dict });
+    const mod: any = {};
+    new Function('module', code)(mod);
+    const fn = Object.values(mod.exports)[0] as Function;
+    expect(fn({})).toContain('Submit');
   });
 });

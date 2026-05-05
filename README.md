@@ -379,6 +379,63 @@ Example `i18n/es.json`:
 
 When no dictionary is passed (or when a key is missing), the original string is used as fallback.
 
+### Loading a dictionary from AEM XML
+
+AEM stores i18n dictionaries as JCR XML files (`en.xml`, `es.xml`, etc.) with the standard `sling:MessageEntry` format:
+
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<jcr:root xmlns:jcr="http://www.jcp.org/jcr/1.0"
+          xmlns:sling="http://sling.apache.org/jcr/sling/1.0"
+          xmlns:mix="http://www.jcp.org/jcr/mix/1.0"
+          jcr:primaryType="sling:Folder"
+          jcr:language="es"
+          jcr:mixinTypes="[mix:language]">
+  <Read_more
+      jcr:primaryType="sling:MessageEntry"
+      sling:key="Read more"
+      sling:message="Leer más"/>
+  <Go_home
+      jcr:primaryType="sling:MessageEntry"
+      sling:key="Go home"
+      sling:message="Ir al inicio"/>
+</jcr:root>
+```
+
+You can load such a file directly without converting it to JSON:
+
+**Webpack loader (`i18nPath` option):**
+
+```js
+use: {
+  loader: require.resolve('htl-to-js/loader'),
+  options: {
+    i18nPath: path.resolve(__dirname, 'ui.i18n/es.xml'),
+  }
+}
+```
+
+The dictionary is baked into the generated module as the default value for `_i18n`. Webpack watches the XML file for changes in watch mode. Stories can still override `_i18n` at runtime to test other languages.
+
+**CLI (`--i18n` flag):**
+
+```bash
+npx htl-gen --i18n ui.i18n/es.xml "components/**/*.html"
+```
+
+**Programmatic API (`i18nDict` option):**
+
+```ts
+import { transpile } from 'htl-to-js';
+import { parseI18nXml } from 'htl-to-js/parseI18nXml';
+import fs from 'fs';
+
+const dict = parseI18nXml(fs.readFileSync('ui.i18n/es.xml', 'utf8'));
+const js = transpile(source, { filename: 'accordion.html', i18nDict: dict });
+```
+
+`parseI18nXml` also handles a simple `<entry key="...">value</entry>` format as a fallback.
+
 ---
 
 ## `data-sly-repeat` vs `data-sly-list`

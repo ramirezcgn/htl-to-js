@@ -38,6 +38,7 @@ const AEM_IMPLICITS: Record<string, string> = {
 interface TranspileOptions {
   filename?: string;
   omitAttrs?: RegExp[];
+  i18nDict?: Record<string, string>;
   modelTransforms?: Record<string, Record<string, string | ((varName: string) => string)>>;
   wrapperClass?: string | boolean;
   resourceWrappers?: Record<
@@ -74,6 +75,7 @@ export function transpile(
   {
     filename = 'component',
     omitAttrs = DEFAULT_OMIT_ATTRS,
+    i18nDict,
     modelTransforms = {},
     wrapperClass,
     resourceWrappers,
@@ -110,6 +112,8 @@ export function transpile(
     }
   }
 
+  const i18nDefault = i18nDict ? JSON.stringify(i18nDict) : undefined;
+
   let body: string;
   if (templates.length > 0) {
     body = transpileNamedTemplates(
@@ -118,6 +122,7 @@ export function transpile(
       sourceDir,
       modelTransforms,
       serializedFileOverrides,
+      i18nDefault,
     );
   } else {
     body = transpileSingleTemplate(
@@ -128,6 +133,7 @@ export function transpile(
       modelTransforms,
       wrapperClass,
       serializedFileOverrides,
+      i18nDefault,
     );
   }
 
@@ -273,7 +279,9 @@ function transpileNamedTemplates(
   sourceDir: string,
   modelTransforms: Record<string, Record<string, string | ((varName: string) => string)>> = {},
   fileOverrides: Record<string, string> = {},
+  i18nDefault?: string,
 ): string {
+  const implicits = i18nDefault ? { ...AEM_IMPLICITS, _i18n: i18nDefault } : AEM_IMPLICITS;
   const localTemplates: Record<string, string> = Object.fromEntries(
     templates.map(({ name }) => [name, toPascalFnName('create', name)])
   );
@@ -299,7 +307,7 @@ function transpileNamedTemplates(
       if (!allParams.includes(useName)) allParams.push(useName);
     }
     const setDecls = buildSetDecls(ctx.sets);
-    for (const implicitName of Object.keys(AEM_IMPLICITS)) {
+    for (const implicitName of Object.keys(implicits)) {
       if (
         !allParams.includes(implicitName) &&
         (body.includes(implicitName) || setDecls.includes(implicitName))
@@ -318,7 +326,7 @@ function transpileNamedTemplates(
       allParams.map((p) => ({
         name: p,
         default:
-          AEM_IMPLICITS[p] ??
+          implicits[p] ??
           ctx.useDefaults[p] ??
           (params.includes(p) ? "''" : '{}'),
       }))
@@ -342,7 +350,9 @@ function transpileSingleTemplate(
   modelTransforms: Record<string, Record<string, string | ((varName: string) => string)>> = {},
   wrapperClass?: string | boolean,
   fileOverrides: Record<string, string> = {},
+  i18nDefault?: string,
 ): string {
+  const implicits = i18nDefault ? { ...AEM_IMPLICITS, _i18n: i18nDefault } : AEM_IMPLICITS;
   const ctx = createContext(
     omitAttrs,
     sourceDir,
@@ -364,7 +374,7 @@ function transpileSingleTemplate(
   }));
   const setDecls = buildSetDecls(ctx.sets);
 
-  for (const [name, defaultVal] of Object.entries(AEM_IMPLICITS)) {
+  for (const [name, defaultVal] of Object.entries(implicits)) {
     if (!ctx.uses[name] && (body.includes(name) || setDecls.includes(name))) {
       params.push({ name, default: defaultVal });
     }

@@ -1206,6 +1206,16 @@ describe('convertExpr — i18n dictionary', () => {
   it('generates dynamic lookup for a dotted expression', () => {
     expect(convertExpr('model.key @ i18n')).toBe('_i18n?.[model?.key] ?? model?.key');
   });
+
+  it('wraps expression in parens when it contains || to avoid ?? mixing error', () => {
+    expect(convertExpr("(a && b) || 'fallback' @ i18n")).toBe(
+      "_i18n?.[((a && b) || 'fallback')] ?? ((a && b) || 'fallback')"
+    );
+  });
+
+  it('wraps expression in parens when it contains && to avoid ?? mixing error', () => {
+    expect(convertExpr('a && b @ i18n')).toBe('_i18n?.[(a && b)] ?? (a && b)');
+  });
 });
 
 describe('transpile — i18n dictionary', () => {

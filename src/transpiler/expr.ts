@@ -85,7 +85,9 @@ export function convertExpr(raw: string): string {
     inner = "_i18n?.['" + escapedKey + "'] ?? " + inner;
   }
   if (hasVarI18n) {
-    inner = `_i18n?.[${inner}] ?? ${inner}`;
+    const needsParens = /\|\||\&\&/.test(inner);
+    const safe = needsParens ? `(${inner})` : inner;
+    inner = `_i18n?.[${safe}] ?? ${safe}`;
   }
   if (urlencodeMatch) {
     inner = `encodeURIComponent(${inner} ?? '')`;

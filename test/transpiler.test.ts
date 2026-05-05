@@ -693,6 +693,30 @@ describe('transpile — data-sly-resource', () => {
     expect(html).toContain('<div class="aem-Grid">');
     expect(html).toContain('<p>Content</p>');
   });
+
+  it('uses data-sly-set variable (same element) as dynamic key for data-sly-resource', () => {
+    // data-sly-set.path and data-sly-resource="${path}" on the same element:
+    // path is defined on the same element so it must NOT be quoted to 'path'.
+    const src = `<div
+      data-sly-set.path="\${'{0}/par_{1}' @ format=[resource.path, itemList.index]}"
+      data-sly-resource="\${path @ resourceType='anaplan/components/responsivegrid'}">
+    </div>`;
+    const code = transpile(src, { filename: 'test.html' });
+    // The resource lookup must use the variable `path`, not the string literal 'path'
+    expect(code).not.toContain("_includes?.['path']");
+    expect(code).toContain('_includes?.[path]');
+
+    // Runtime: the include function for the computed path must be called
+    const mod: any = {};
+    new Function('module', code)(mod);
+    const fn = Object.values(mod.exports)[0] as Function;
+    const html = fn({
+      resource: { path: 'navgroup' },
+      itemList: { index: 0 },
+      _includes: { 'navgroup/par_0': () => '<section>par</section>' },
+    });
+    expect(html).toContain('<section>par</section>');
+  });
 });
 
 // ---------------------------------------------------------------------------

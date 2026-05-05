@@ -127,7 +127,8 @@ function processElement(node: any, ctx: WalkerContext): string {
   if (dir.test) addRootRefs(dir.test, ctx.refs);
   if (dir.text) addRootRefs(dir.text, ctx.refs);
   if (dir.resource) {
-    if (/^\w+$/.test(dir.resource) && !ctx.definedVars.has(dir.resource) && !ctx.uses[dir.resource]) {
+    const definedOnSameElement = dir.sets.some((s) => s.name === dir.resource);
+    if (/^\w+$/.test(dir.resource) && !ctx.definedVars.has(dir.resource) && !ctx.uses[dir.resource] && !definedOnSameElement) {
       dir.resource = `'${dir.resource}'`;
     }
     addRootRefs(dir.resource, ctx.refs);

@@ -1020,6 +1020,39 @@ describe('transpile — variable casing preservation', () => {
     const code = transpile(src, { filename: 'test.html' });
     expect(code).toContain('myModel');
   });
+
+  it('normalizes camelCase data-sly-list varName metadata (XxxList) in source and restores it', () => {
+    // data-sly-test on the CHILD element: cellItemList is in scope inside the map body
+    const src = `<table><tr data-sly-list.cellItem="\${model.cells}"><td data-sly-test="\${cellItemList.index < model.columnsCount}">\${cellItem.text}</td></tr></table>`;
+    const code = transpile(src, { filename: 'test.html' });
+    // generated code must use camelCase cellItemList (not cellitemlist / cellitemList)
+    expect(code).toContain('cellItemList');
+    expect(code).not.toContain('cellitemlist');
+    // must work at runtime: renders only <td> whose index is < columnsCount
+    const mod: any = {};
+    new Function('module', code)(mod);
+    const fn = Object.values(mod.exports)[0] as Function;
+    const html = fn({ model: { cells: [{ text: 'A' }, { text: 'B' }, { text: 'C' }], columnsCount: 2 } });
+    // index 0 < 2 → A, index 1 < 2 → B, index 2 < 2 → false → C skipped
+    expect(html).toContain('A');
+    expect(html).toContain('B');
+    expect(html).not.toContain('C');
+  });
+
+  it('normalizes camelCase data-sly-repeat varName metadata (XxxList) in source and restores it', () => {
+    // Just verify the generated code uses camelCase listItemList (normalization + restore)
+    const src = `<li data-sly-repeat.listItem="\${model.items}">\${listItem.name} (\${listItemList.count})</li>`;
+    const code = transpile(src, { filename: 'test.html' });
+    expect(code).toContain('listItemList');
+    expect(code).not.toContain('listitemlist');
+    // also verify it renders correctly at runtime
+    const mod: any = {};
+    new Function('module', code)(mod);
+    const fn = Object.values(mod.exports)[0] as Function;
+    const html = fn({ model: { items: [{ name: 'alpha' }, { name: 'beta' }] } });
+    expect(html).toContain('alpha (1)');
+    expect(html).toContain('beta (2)');
+  });
 });
 
 // ---------------------------------------------------------------------------

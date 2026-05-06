@@ -611,7 +611,12 @@ function normalizeSetVarCasing(source: string): {
     for (const m of source.matchAll(
       new RegExp(String.raw`${dir}\.([A-Za-z_]\w*)`, 'g')
     )) {
-      if (m[1] !== m[1].toLowerCase()) restoreMap[m[1].toLowerCase()] = m[1];
+      if (m[1] !== m[1].toLowerCase()) {
+        restoreMap[m[1].toLowerCase()] = m[1];
+        if (dir === 'data-sly-list' || dir === 'data-sly-repeat') {
+          restoreMap[m[1].toLowerCase() + 'List'] = m[1] + 'List';
+        }
+      }
     }
   }
 

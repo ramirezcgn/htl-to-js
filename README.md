@@ -425,6 +425,69 @@ Example `i18n/es.json`:
 
 When no dictionary is passed (or when a key is missing), the original string is used as fallback.
 
+### Pluralization
+
+Add `count=<expr>` alongside `@ i18n` to select the plural or singular form at runtime:
+
+```html
+<!-- HTL -->
+<span>${'item' @ i18n, count=n}</span>
+```
+
+Generated:
+
+```js
+<span>${_htlI18nPlural('item', n, _i18n)}</span>
+```
+
+The dictionary entry for a pluralizable key is an array `[singular, plural]`:
+
+```json
+{
+  "item": ["1 item", "{0} items"]
+}
+```
+
+`_htlI18nPlural` picks index `0` when `count === 1` and index `1` otherwise, then substitutes `{0}` with the count value.
+
+### Locale fallback chains
+
+When targeting a specific locale (e.g. `es_MX`), you can supply a chain of dictionaries. Keys from earlier dictionaries override later ones, so the most specific locale should come first.
+
+**Programmatic API:**
+
+```ts
+const primary  = parseI18nXml(fs.readFileSync('i18n/es_MX.xml', 'utf8'));
+const fallback = parseI18nXml(fs.readFileSync('i18n/es.xml', 'utf8'));
+
+const js = transpile(source, {
+  filename: 'card.html',
+  i18nDict: primary,
+  i18nFallbackDicts: [fallback],
+});
+```
+
+**Webpack loader (`i18nFallbackPaths` option):**
+
+```js
+use: {
+  loader: require.resolve('htl-to-js/loader'),
+  options: {
+    i18nPath: path.resolve(__dirname, 'i18n/es_MX.xml'),
+    i18nFallbackPaths: [
+      path.resolve(__dirname, 'i18n/es.xml'),
+      path.resolve(__dirname, 'i18n/en.xml'),
+    ],
+  },
+}
+```
+
+**CLI — multiple `--i18n` flags (first = primary, rest = fallbacks):**
+
+```bash
+npx htl-gen --i18n i18n/es_MX.xml --i18n i18n/es.xml --i18n i18n/en.xml "src/**/*.html"
+```
+
 ### Loading a dictionary from AEM XML
 
 AEM stores i18n dictionaries as JCR XML files (`en.xml`, `es.xml`, etc.) with the standard `sling:MessageEntry` format:
@@ -597,6 +660,38 @@ options: {
 - **`childClass`** — CSS class injected into the first element of the child component's output (merges with existing `class` or creates one)
 
 At runtime, the `_resourceWrappers` parameter can override or extend the static config.
+
+### `format`
+
+Controls the module format of the generated code. Defaults to `'cjs'`.
+
+| Value | Output |
+|---|---|
+| `'cjs'` (default) | `module.exports = { createFoo }` |
+| `'esm'` | `export { createFoo }` |
+
+```ts
+const js = transpile(source, { filename: 'card.html', format: 'esm' });
+```
+
+In the webpack loader pass it as a loader option:
+
+```js
+use: {
+  loader: require.resolve('htl-to-js/loader'),
+  options: { format: 'esm' },
+}
+```
+
+In the CLI use `--esm`:
+
+```bash
+npx htl-gen --esm "components/**/*.html"
+```
+
+When `format: 'esm'` and `data-sly-use` references a local `.js` or `.json` file, the generated code emits `import` declarations instead of `require()` calls.
+
+---
 
 ### `modelTransforms`
 
@@ -797,12 +892,16 @@ Each option has a single responsibility:
 
 ```ts
 import { transpile } from 'htl-to-js';
+import { parseI18nXml } from 'htl-to-js/parseI18nXml';
 import fs from 'fs';
 
 const source = fs.readFileSync('accordion.html', 'utf8');
 const jsModule = transpile(source, {
   filename: 'accordion.html',
+  format: 'cjs',           // 'cjs' (default) | 'esm'
   omitAttrs: [],
+  i18nDict: {},            // bake a dictionary into the module
+  i18nFallbackDicts: [],   // additional fallback dictionaries (lower priority)
 });
 
 console.log(jsModule);

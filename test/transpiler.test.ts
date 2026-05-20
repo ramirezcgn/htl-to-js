@@ -331,7 +331,7 @@ describe('transpile — data-sly-include', () => {
   it('generates an _includes slot for literal paths', () => {
     const src = `<sly data-sly-include="./header.html"></sly>`;
     const out = transpile(src, { filename: 'test.html' });
-    expect(out).toContain("_inc(_includes?.['./header.html'])");
+    expect(out).toContain("_incSlot(_includes, './header.html')");
   });
 
   it('adds _includes as a parameter', () => {
@@ -343,7 +343,7 @@ describe('transpile — data-sly-include', () => {
   it('handles dynamic include expressions', () => {
     const src = `<sly data-sly-include="\${model.template}"></sly>`;
     const out = transpile(src, { filename: 'test.html' });
-    expect(out).toContain('_inc(_includes?.[model?.template])');
+    expect(out).toContain('_incSlot(_includes, model?.template)');
   });
 });
 
@@ -716,8 +716,8 @@ describe('transpile — data-sly-resource', () => {
     </div>`;
     const code = transpile(src, { filename: 'test.html' });
     // The resource lookup must use the variable `path`, not the string literal 'path'
-    expect(code).not.toContain("_includes?.['path']");
-    expect(code).toContain('_includes?.[path]');
+    expect(code).not.toContain("_incSlot(_includes, 'path')");
+    expect(code).toContain('_incSlot(_includes, path)');
 
     // Runtime: the include function for the computed path must be called
     const mod: any = {};
@@ -988,13 +988,13 @@ describe('transpile — self-closing <sly/> expansion', () => {
   it('handles self-closing sly with include', () => {
     const src = `<sly data-sly-include="./partial.html"/>`;
     const out = transpile(src, { filename: 'test.html' });
-    expect(out).toContain("_inc(_includes?.['./partial.html'])");;
+    expect(out).toContain("_incSlot(_includes, './partial.html')");
   });
 
   it('handles self-closing sly with test', () => {
     const src = `<sly data-sly-test="\${model.show}" data-sly-include="./header.html"/>`;
     const out = transpile(src, { filename: 'test.html' });
-    expect(out).toContain("_inc(_includes?.['./header.html'])");
+    expect(out).toContain("_incSlot(_includes, './header.html')");
     expect(out).toContain('model?.show');
   });
 });
@@ -2753,6 +2753,116 @@ describe('convertExpr — @ urlencode', () => {
 });
 
 // ---------------------------------------------------------------------------
+// _incSlot — indexed array fallback
+// ---------------------------------------------------------------------------
+
+describe('transpile — _incSlot array fallback', () => {
+  it('resolves par_N from an array returned by par', () => {
+    const src = `<sly data-sly-resource="\${'par_0'}"></sly><sly data-sly-resource="\${'par_1'}"></sly>`;
+    const code = transpile(src, { filename: 'test.html' });
+    const mod: any = {};
+    new Function('module', code)(mod);
+    const fn = Object.values(mod.exports)[0] as Function;
+    const html = fn({
+      _includes: {
+        par: () => ['<p>first</p>', '<p>second</p>'],
+      },
+    });
+    expect(html).toContain('<p>first</p>');
+    expect(html).toContain('<p>second</p>');
+  });
+
+  it('prefers an exact key over the array fallback', () => {
+    const src = `<sly data-sly-resource="\${'par_0'}"></sly>`;
+    const code = transpile(src, { filename: 'test.html' });
+    const mod: any = {};
+    new Function('module', code)(mod);
+    const fn = Object.values(mod.exports)[0] as Function;
+    const html = fn({
+      _includes: {
+        par_0: () => '<p>exact</p>',
+        par: () => ['<p>from-array</p>'],
+      },
+    });
+    expect(html).toContain('<p>exact</p>');
+    expect(html).not.toContain('from-array');
+  });
+
+  it('accepts a plain array (not a function) as the base key', () => {
+    const src = `<sly data-sly-resource="\${'par_0'}"></sly>`;
+    const code = transpile(src, { filename: 'test.html' });
+    const mod: any = {};
+    new Function('module', code)(mod);
+    const fn = Object.values(mod.exports)[0] as Function;
+    const html = fn({
+      _includes: {
+        par: ['<p>plain</p>'],
+      },
+    });
+    expect(html).toContain('<p>plain</p>');
+  });
+
+  it('returns empty string for an out-of-bounds index', () => {
+    const src = `<sly data-sly-resource="\${'par_5'}"></sly>`;
+    const code = transpile(src, { filename: 'test.html' });
+    const mod: any = {};
+    new Function('module', code)(mod);
+    const fn = Object.values(mod.exports)[0] as Function;
+    const html = fn({ _includes: { par: () => ['only one'] } });
+    expect(html).toBe('');
+  });
+
+  it('works with path-prefixed keys like navgroup/par_0', () => {
+    const src = `<sly data-sly-resource="\${'navgroup/par_0'}"></sly><sly data-sly-resource="\${'navgroup/par_1'}"></sly>`;
+    const code = transpile(src, { filename: 'test.html' });
+    const mod: any = {};
+    new Function('module', code)(mod);
+    const fn = Object.values(mod.exports)[0] as Function;
+    const html = fn({
+      _includes: {
+        'navgroup/par': () => ['<div>col0</div>', '<div>col1</div>'],
+      },
+    });
+    expect(html).toContain('<div>col0</div>');
+    expect(html).toContain('<div>col1</div>');
+  });
+
+  it('joins a direct array value (non-indexed key)', () => {
+    const src = `<sly data-sly-resource="\${'header'}"></sly>`;
+    const code = transpile(src, { filename: 'test.html' });
+    const mod: any = {};
+    new Function('module', code)(mod);
+    const fn = Object.values(mod.exports)[0] as Function;
+    const html = fn({ _includes: { header: ['<nav>A</nav>', '<nav>B</nav>'] } });
+    expect(html).toBe('<nav>A</nav><nav>B</nav>');
+  });
+
+  it('joins a 2D array from a function returning nested arrays', () => {
+    const src = `<sly data-sly-resource="\${'par_0'}"></sly><sly data-sly-resource="\${'par_1'}"></sly>`;
+    const code = transpile(src, { filename: 'test.html' });
+    const mod: any = {};
+    new Function('module', code)(mod);
+    const fn = Object.values(mod.exports)[0] as Function;
+    const html = fn({
+      _includes: {
+        par: () => [['<span>a</span>', '<span>b</span>'], ['<span>c</span>', '<span>d</span>']],
+      },
+    });
+    expect(html).toBe('<span>a</span><span>b</span><span>c</span><span>d</span>');
+  });
+
+  it('joins a function returning a direct array for non-indexed key', () => {
+    const src = `<sly data-sly-resource="\${'items'}"></sly>`;
+    const code = transpile(src, { filename: 'test.html' });
+    const mod: any = {};
+    new Function('module', code)(mod);
+    const fn = Object.values(mod.exports)[0] as Function;
+    const html = fn({ _includes: { items: () => ['<li>x</li>', '<li>y</li>'] } });
+    expect(html).toBe('<li>x</li><li>y</li>');
+  });
+});
+
+// ---------------------------------------------------------------------------
 // __slots__
 // ---------------------------------------------------------------------------
 
@@ -2778,6 +2888,30 @@ describe('transpile — __slots__', () => {
     new Function('module', code)(mod);
     expect(mod.exports.__slots__).toEqual(['header']);
   });
+
+  it('attaches __slots__ directly to each exported create function', () => {
+    const src = `<sly data-sly-resource="\${'par'}"></sly>`;
+    const code = transpile(src, { filename: 'test.html' });
+    const mod: any = {};
+    new Function('module', code)(mod);
+    const fn = Object.values(mod.exports).find((v) => typeof v === 'function') as any;
+    expect(fn.__slots__).toEqual(['par']);
+  });
+
+  it('attaches __slots__ to all named template functions', () => {
+    const src = `
+      <template data-sly-template.card="\${ @ model }">
+        <sly data-sly-resource="\${'content'}"></sly>
+      </template>
+      <template data-sly-template.footer="\${ @ copy }">
+        <sly data-sly-resource="\${'logo'}"></sly>
+      </template>`;
+    const code = transpile(src, { filename: 'test.html' });
+    const mod: any = {};
+    new Function('module', code)(mod);
+    expect(mod.exports.createCard.__slots__).toEqual(['content', 'logo']);
+    expect(mod.exports.createFooter.__slots__).toEqual(['content', 'logo']);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -2790,6 +2924,22 @@ describe('generateDts', () => {
     const dts = generateDts(code);
     expect(dts).toContain('export declare function createCard(');
     expect(dts).toContain('model?: any');
+  });
+
+  it('types _includes as Record when no slots', () => {
+    const src = `<sly data-sly-resource="\${model.path}"></sly>`;
+    const code = transpile(src, { filename: 'card.html' });
+    const dts = generateDts(code);
+    expect(dts).toContain('_includes?: Record<string, string | (() => string) | undefined>');
+  });
+
+  it('types _includes with slot keys when __slots__ present', () => {
+    const src = `<sly data-sly-resource="\${'header'}"></sly><sly data-sly-resource="\${'footer'}"></sly>`;
+    const code = transpile(src, { filename: 'test.html' });
+    const dts = generateDts(code);
+    expect(dts).toContain("'header'?: string | (() => string)");
+    expect(dts).toContain("'footer'?: string | (() => string)");
+    expect(dts).toContain('[key: string]: string | (() => string) | undefined');
   });
 
   it('includes __slots__ declaration when present', () => {

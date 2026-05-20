@@ -143,6 +143,8 @@ export function transpile(
     `const _htlDynAttr = (name, val) => { if (val == null || val === false) return ''; if (val === true) return ' ' + name; return ' ' + name + '="' + _htlAttr(val) + '"'; };`,
     `const _htlSpreadAttrs = (obj) => { if (!obj || typeof obj !== 'object') return ''; return Object.entries(obj).map(([k, v]) => _htlDynAttr(k, v)).join(''); };`,
     `const _inc = (v) => typeof v === 'function' ? v() : String(v ?? '');`,
+    `const _arrJoin = (v) => Array.isArray(v) ? v.map(_arrJoin).join('') : (v == null ? '' : String(v));`,
+    String.raw`const _incSlot = (inc, key) => { if (!inc) return ''; const v = inc[key]; if (v != null) return _arrJoin(typeof v === 'function' ? v() : v); if (typeof key === 'string') { const m = key.match(/^(.+)_(\d+)$/); if (m) { const b = inc[m[1]]; if (b != null) { const a = typeof b === 'function' ? b() : b; if (Array.isArray(a)) return _arrJoin(a[+m[2]]); } } } return ''; };`,
     `const _wrapResource = (key, html, wrappers, resourceType) => {`,
     `  const cfg = wrappers?.[key] ?? (resourceType ? wrappers?.[resourceType] : undefined); if (!cfg) return html;`,
     `  if (typeof cfg === 'string') return '<div class="' + cfg + '">' + html + '</div>';`,
@@ -175,11 +177,11 @@ export function transpile(
     : '';
   const finalBody = restoreVarCasing(body, restoreMap);
   const slotsSet = new Set<string>();
-  for (const m of finalBody.matchAll(/_inc\(_includes\?\.\['([^']+)'\]\)/g)) {
+  for (const m of finalBody.matchAll(/_incSlot\(_includes,\s*'([^']+)'\)/g)) {
     slotsSet.add(m[1]);
   }
   const slotsLine = slotsSet.size
-    ? `\nObject.assign(module.exports, { __slots__: ${JSON.stringify([...slotsSet])} });\n`
+    ? `\nconst __slots__ = ${JSON.stringify([...slotsSet])};\nObject.assign(module.exports, { __slots__ });\nfor (const _fn of Object.values(module.exports)) { if (typeof _fn === 'function') _fn.__slots__ = __slots__; }\n`
     : '';
   return (
     banner + helpers + resourceWrapperDecl + inlinedCode + finalBody + slotsLine
@@ -455,6 +457,8 @@ function extractOriginalTemplateNames(source: string): Record<string, string> {
 
 export function generateDts(jsSource: string): string {
   const lines: string[] = [];
+  const slotsMatch = /const __slots__ = (\[[^\]]*\])/.exec(jsSource);
+  const slots: string[] = slotsMatch ? JSON.parse(slotsMatch[1]) : [];
   for (const m of jsSource.matchAll(/const (create\w+) = \(\{((?:[^{}]|\{[^}]*\})*)\}\s*=\s*\{\}\)/g)) {
     const fnName = m[1];
     const paramBlock = m[2];
@@ -462,11 +466,15 @@ export function generateDts(jsSource: string): string {
       .split(',')
       .map((p) => p.replace(/\s*=[\s\S]*/g, '').trim())
       .filter((p) => /^\w+$/.test(p));
-    const propList = paramNames.map((p) => `${p}?: any`).join('; ');
+    const incType = slots.length > 0
+      ? `{ ${slots.map((s) => `'${s}'?: string | (() => string)`).join('; ')}; [key: string]: string | (() => string) | undefined }`
+      : `Record<string, string | (() => string) | undefined>`;
+    const propList = paramNames.map((p) =>
+      p === '_includes' ? `${p}?: ${incType}` : `${p}?: any`
+    ).join('; ');
     const propsType = paramNames.length ? `{ ${propList} }` : 'Record<string, any>';
     lines.push(`export declare function ${fnName}(args?: ${propsType}): string;`);
   }
-  const slotsMatch = /__slots__:\s*(\[[^\]]*\])/.exec(jsSource);
   if (slotsMatch) {
     lines.push(`export declare const __slots__: ${slotsMatch[1].replace(/"/g, "'")};`);
   }

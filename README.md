@@ -227,33 +227,79 @@ module.exports = { createDefault };
 
 ```js
 // Generated
-${_inc(_includes?.['header'])}
-${_inc(_includes?.[model?.path])}
+${_incSlot(_includes, 'header')}
+${_incSlot(_includes, model?.path)}
 ```
 
-Pass content via `_includes` in your story args. Both plain strings and functions are accepted:
+Pass content via `_includes` in your story args. Strings, functions, and arrays are all accepted:
 
 ```js
 export const Default = {
   args: {
     _includes: {
-      header: '<nav>Navigation</nav>',         // plain string
-      sidebar: () => '<aside>Sidebar</aside>', // or a function
+      header: '<nav>Navigation</nav>',            // plain string
+      sidebar: () => '<aside>Sidebar</aside>',    // function
+      tags: ['<li>One</li>', '<li>Two</li>'],     // array — joined automatically
+      items: () => ['<li>A</li>', '<li>B</li>'],  // function returning array
     }
   }
 }
 ```
 
-### `__slots__`
+#### Indexed slots (`par_N`)
 
-When a template uses static `data-sly-resource` keys (string literals), the generated module also exports a `__slots__` array listing those keys. This allows parent components to discover which slots a child expects without importing and running the template:
+When a template repeats a slot name with an index suffix (e.g. `par_0`, `par_1`), you can supply a single array under the base key and each index is resolved automatically:
 
 ```js
-import { __slots__ } from '../header/header.template.js';
-// e.g. ['hero', 'footer']
+args: {
+  _includes: {
+    // Instead of:
+    //   par_0: '<div>First</div>',
+    //   par_1: '<div>Second</div>',
+    // You can write:
+    par: ['<div>First</div>', '<div>Second</div>'],
+    // or with a factory:
+    par: () => ['<div>First</div>', '<div>Second</div>'],
+    // 2D arrays are flattened:
+    par: () => [['<span>a</span>', '<span>b</span>'], ['<span>c</span>']],
+  }
+}
+```
+
+An exact match for `par_0` always takes priority over the array fallback.
+
+### `__slots__`
+
+When a template uses static `data-sly-resource` keys (string literals), the generated module exports a `__slots__` array listing those keys. It is also attached directly to every exported `create*` function, so you can inspect it at the call site without a separate import:
+
+```js
+import { createHeader, __slots__ } from '../header/header.template.js';
+// __slots__ === ['hero', 'footer']
+
+// Also available on the function itself:
+createHeader.__slots__; // ['hero', 'footer']
 ```
 
 Dynamic keys (expressions like `${model.path}`) are not included — only compile-time string literals appear in `__slots__`.
+
+### TypeScript declarations (`.d.ts`)
+
+Use `generateDts` (or the `--dts` CLI flag) to emit a declaration file alongside the generated JS. When `__slots__` is present, `_includes` is typed with the known slot keys:
+
+```ts
+// header.template.d.ts
+export declare function createHeader(args?: {
+  model?: any;
+  _includes?: {
+    'hero'?: string | (() => string);
+    'footer'?: string | (() => string);
+    [key: string]: string | (() => string) | undefined;
+  };
+}): string;
+export declare const __slots__: ['hero', 'footer'];
+```
+
+When no static slots are present, `_includes` falls back to `Record<string, string | (() => string) | undefined>`.
 
 ---
 
@@ -314,10 +360,10 @@ Generated:
 
 ```js
 // Literal path
-${_inc(_includes?.['./header.html'])}
+${_incSlot(_includes, './header.html')}
 
 // Dynamic path
-${_inc(_includes?.[model?.templatePath])}
+${_incSlot(_includes, model?.templatePath)}
 ```
 
 In the story, pass either a function (component factory) or a plain string:

@@ -1,6 +1,6 @@
 import { parseDirectives } from './directives';
 import type { Directives, SetDecl } from './directives';
-import { convertExpr, convertAttrValue, convertTextContent, extractExprs } from './expr';
+import { convertExpr, convertAttrValue, convertTextContent, extractExprs, extractContext } from './expr';
 
 const VOID_ELEMENTS = new Set([
   'area',
@@ -23,6 +23,7 @@ export interface WalkerContext {
   uses: Record<string, string>;
   useDefaults: Record<string, string>;
   fileUse: Record<string, string>;
+  jsFileUse: Record<string, string>;
   sets: SetDecl[];
   omitAttrs: RegExp[];
   sourceDir: string;
@@ -41,6 +42,7 @@ export function createContext(
     uses: {},
     useDefaults: {},
     fileUse: {},
+    jsFileUse: {},
     sets: [],
     omitAttrs,
     sourceDir,
@@ -79,6 +81,9 @@ export function walkNodes(nodes: any[], ctx: WalkerContext): string {
 function walkNode(node: any, ctx: WalkerContext): string {
   switch (node.type) {
     case 'text':
+      for (const { expr } of extractExprs(node.data)) {
+        addRootRefs(expr, ctx.refs);
+      }
       return convertTextContent(node.data);
     case 'comment':
       if (node.data?.trimStart().startsWith('/*')) return '';
@@ -101,6 +106,7 @@ function processElement(node: any, ctx: WalkerContext): string {
   Object.assign(ctx.uses, dir.use);
   Object.assign(ctx.useDefaults, dir.useDefaults);
   Object.assign(ctx.fileUse, dir.fileUse);
+  Object.assign(ctx.jsFileUse, dir.jsFileUse);
 
   for (const [varName, filePath] of Object.entries(dir.fileUse)) {
     const basename = filePath.replace(/^.*[\\/]/, '');
@@ -157,6 +163,7 @@ function processElement(node: any, ctx: WalkerContext): string {
         uses: ctx.uses,
         useDefaults: ctx.useDefaults,
         fileUse: ctx.fileUse,
+        jsFileUse: ctx.jsFileUse,
         sets: [],
         omitAttrs: ctx.omitAttrs,
         sourceDir: ctx.sourceDir,
@@ -331,7 +338,10 @@ function buildInnerContent(
     const rtArg = dir.resourceType ? "'" + dir.resourceType + "'" : 'undefined';
     return `\${_wrapResource(${dir.resource}, _incSlot(_includes, ${dir.resource}), Object.assign({}, _staticResourceWrappers ?? {}, _resourceWrappers), ${rtArg})}`;
   }
-  if (dir.text) return `\${${dir.text}}`;
+  if (dir.text) {
+    const isRaw = dir.textContext === 'html' || dir.textContext === 'unsafe';
+    return isRaw ? `\${${dir.text} ?? ''}` : `\${_htlText(${dir.text})}`;
+  }
   return walkNodes(node.children, ctx);
 }
 
@@ -346,7 +356,15 @@ function buildAttrs(
     .map(([key, val]) => {
       const exprs = extractExprs(val);
       if (exprs.length === 1 && exprs[0].index === 0 && exprs[0].end === val.length) {
-        return `\${_htlDynAttr('${key}', ${convertExpr(exprs[0].expr)})}`;
+        const ctx = extractContext(exprs[0].expr);
+        const converted = convertExpr(exprs[0].expr);
+        if (ctx === 'unsafe') {
+          return ` ${key}="\${${converted} ?? ''}"`;
+        }
+        if (ctx === 'uri') {
+          return `\${_htlDynAttr('${key}', _htlUri(${converted}))}`;
+        }
+        return `\${_htlDynAttr('${key}', ${converted})}`;
       }
       return ` ${key}="${convertAttrValue(val)}"`;
     })

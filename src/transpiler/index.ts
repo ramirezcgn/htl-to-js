@@ -39,6 +39,7 @@ interface TranspileOptions {
   filename?: string;
   omitAttrs?: RegExp[];
   i18nDict?: Record<string, string>;
+  i18nFallbackDicts?: Record<string, string>[];
   modelTransforms?: Record<string, Record<string, string | ((varName: string) => string)>>;
   wrapperClass?: string | boolean;
   resourceWrappers?: Record<
@@ -49,6 +50,7 @@ interface TranspileOptions {
     string,
     string | { expression?: string; htl?: string }
   >;
+  format?: 'cjs' | 'esm';
 }
 
 interface ParamDecl {
@@ -76,10 +78,12 @@ export function transpile(
     filename = 'component',
     omitAttrs = DEFAULT_OMIT_ATTRS,
     i18nDict,
+    i18nFallbackDicts,
     modelTransforms = {},
     wrapperClass,
     resourceWrappers,
     fileOverrides = {},
+    format = 'cjs',
   }: TranspileOptions = {}
 ): string {
   const expandedSource = htlSource.replaceAll(
@@ -112,7 +116,11 @@ export function transpile(
     }
   }
 
-  const i18nDefault = i18nDict ? JSON.stringify(i18nDict) : undefined;
+  const effectiveI18nDict =
+    i18nFallbackDicts?.length
+      ? Object.assign({}, ...i18nFallbackDicts, i18nDict ?? {})
+      : i18nDict;
+  const i18nDefault = effectiveI18nDict ? JSON.stringify(effectiveI18nDict) : undefined;
 
   let body: string;
   if (templates.length > 0) {
@@ -123,6 +131,7 @@ export function transpile(
       modelTransforms,
       serializedFileOverrides,
       i18nDefault,
+      format,
     );
   } else {
     body = transpileSingleTemplate(
@@ -134,12 +143,16 @@ export function transpile(
       wrapperClass,
       serializedFileOverrides,
       i18nDefault,
+      format,
     );
   }
 
   const banner = `// AUTO-GENERATED from ${path.basename(filename)} — DO NOT EDIT\n\n`;
   const helpers = [
     `const _htlAttr = (v) => v == null ? '' : (typeof v === 'object' ? JSON.stringify(v).replace(/"/g, '&quot;') : String(v).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'));`,
+    `const _htlText = (v) => v == null ? '' : String(v).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');`,
+    `const _htlUri = (v) => { if (v == null) return ''; try { return encodeURI(String(v)).replace(/"/g, '&quot;'); } catch { return ''; } };`,
+    `const _htlI18nPlural = (key, count, dict) => { if (key == null) return ''; const n = Number(count); const tmpl = (n === 1 ? dict?.[key] : (dict?.[key + '_plural'] ?? dict?.[key])) ?? String(key); return String(tmpl).replace('{0}', String(n)); };`,
     `const _htlDynAttr = (name, val) => { if (val == null || val === false) return ''; if (val === true) return ' ' + name; return ' ' + name + '="' + _htlAttr(val) + '"'; };`,
     `const _htlSpreadAttrs = (obj) => { if (!obj || typeof obj !== 'object') return ''; return Object.entries(obj).map(([k, v]) => _htlDynAttr(k, v)).join(''); };`,
     `const _inc = (v) => typeof v === 'function' ? v() : String(v ?? '');`,
@@ -176,15 +189,32 @@ export function transpile(
     ? inlinedDeclarations.join('\n\n') + '\n\n'
     : '';
   const finalBody = restoreVarCasing(body, restoreMap);
+
+  // For ESM, hoist import declarations (emitted at the top of body) before helpers
+  let esmImports = '';
+  let codeBody = finalBody;
+  if (format === 'esm') {
+    const importLines: string[] = [];
+    const restLines: string[] = [];
+    for (const line of finalBody.split('\n')) {
+      if (/^import\s/.test(line)) importLines.push(line);
+      else restLines.push(line);
+    }
+    esmImports = importLines.length ? importLines.join('\n') + '\n\n' : '';
+    codeBody = restLines.join('\n');
+  }
+
   const slotsSet = new Set<string>();
-  for (const m of finalBody.matchAll(/_incSlot\(_includes,\s*'([^']+)'\)/g)) {
+  for (const m of codeBody.matchAll(/_incSlot\(_includes,\s*'([^']+)'\)/g)) {
     slotsSet.add(m[1]);
   }
   const slotsLine = slotsSet.size
-    ? `\nconst __slots__ = ${JSON.stringify([...slotsSet])};\nObject.assign(module.exports, { __slots__ });\nfor (const _fn of Object.values(module.exports)) { if (typeof _fn === 'function') _fn.__slots__ = __slots__; }\n`
+    ? (format === 'esm'
+        ? `\nexport const __slots__ = ${JSON.stringify([...slotsSet])};\n`
+        : `\nconst __slots__ = ${JSON.stringify([...slotsSet])};\nObject.assign(module.exports, { __slots__ });\nfor (const _fn of Object.values(module.exports)) { if (typeof _fn === 'function') _fn.__slots__ = __slots__; }\n`)
     : '';
   return (
-    banner + helpers + resourceWrapperDecl + inlinedCode + finalBody + slotsLine
+    banner + esmImports + helpers + resourceWrapperDecl + inlinedCode + codeBody + slotsLine
   );
 }
 
@@ -282,12 +312,14 @@ function transpileNamedTemplates(
   modelTransforms: Record<string, Record<string, string | ((varName: string) => string)>> = {},
   fileOverrides: Record<string, string> = {},
   i18nDefault?: string,
+  format: 'cjs' | 'esm' = 'cjs',
 ): string {
   const implicits = i18nDefault ? { ...AEM_IMPLICITS, _i18n: i18nDefault } : AEM_IMPLICITS;
   const localTemplates: Record<string, string> = Object.fromEntries(
     templates.map(({ name }) => [name, toPascalFnName('create', name)])
   );
   const fnNames: string[] = [];
+  const esmImportLines: string[] = [];
   const parts = templates.map(({ name, params, node }) => {
     const ctx = createContext(
       omitAttrs,
@@ -308,6 +340,9 @@ function transpileNamedTemplates(
     for (const useName of Object.keys(ctx.uses)) {
       if (!allParams.includes(useName)) allParams.push(useName);
     }
+    for (const useName of Object.keys(ctx.jsFileUse)) {
+      if (!allParams.includes(useName)) allParams.push(useName);
+    }
     const setDecls = buildSetDecls(ctx.sets);
     for (const implicitName of Object.keys(implicits)) {
       if (
@@ -324,11 +359,27 @@ function transpileNamedTemplates(
     addFreeVarParams(tempParams, ctx);
     for (const p of tempParams)
       if (!allParams.includes(p.name)) allParams.push(p.name);
+
+    const jsUseBindings: Record<string, string> = {};
+    if (format === 'esm') {
+      for (const [useName, filePath] of Object.entries(ctx.jsFileUse)) {
+        const { importDecl, constDecl, bindingName } = buildJsUseEsm(useName, filePath);
+        if (!esmImportLines.includes(importDecl)) {
+          esmImportLines.push(importDecl);
+          if (constDecl) esmImportLines.push(constDecl);
+        }
+        jsUseBindings[useName] = bindingName;
+      }
+    }
+
     const paramStr = buildParamStr(
       allParams.map((p) => ({
         name: p,
         default:
           implicits[p] ??
+          (ctx.jsFileUse[p]
+            ? (format === 'esm' ? (jsUseBindings[p] ?? buildJsUseDefault(ctx.jsFileUse[p])) : buildJsUseDefault(ctx.jsFileUse[p]))
+            : undefined) ??
           ctx.useDefaults[p] ??
           (params.includes(p) ? "''" : '{}'),
       }))
@@ -336,8 +387,12 @@ function transpileNamedTemplates(
     const transformDecls = buildModelTransformDecls(ctx.uses, modelTransforms);
     return buildFunctionBody(fnName, paramStr, setDecls, body, transformDecls);
   });
-  parts.push(`module.exports = { ${fnNames.join(', ')} };`);
-  return parts.join('\n\n');
+  const exportLine = format === 'esm'
+    ? `export { ${fnNames.join(', ')} };`
+    : `module.exports = { ${fnNames.join(', ')} };`;
+  parts.push(exportLine);
+  const prefix = esmImportLines.length ? esmImportLines.join('\n') + '\n' : '';
+  return prefix + parts.join('\n\n');
 }
 
 // ---------------------------------------------------------------------------
@@ -353,6 +408,7 @@ function transpileSingleTemplate(
   wrapperClass?: string | boolean,
   fileOverrides: Record<string, string> = {},
   i18nDefault?: string,
+  format: 'cjs' | 'esm' = 'cjs',
 ): string {
   const implicits = i18nDefault ? { ...AEM_IMPLICITS, _i18n: i18nDefault } : AEM_IMPLICITS;
   const ctx = createContext(
@@ -374,10 +430,25 @@ function transpileSingleTemplate(
     name,
     default: ctx.useDefaults[name] ?? '{}',
   }));
+
+  const esmImportLines: string[] = [];
+  const jsUseBindings: Record<string, string> = {};
+  for (const [name, filePath] of Object.entries(ctx.jsFileUse)) {
+    if (format === 'esm') {
+      const { importDecl, constDecl, bindingName } = buildJsUseEsm(name, filePath);
+      esmImportLines.push(importDecl);
+      if (constDecl) esmImportLines.push(constDecl);
+      jsUseBindings[name] = bindingName;
+      params.push({ name, default: bindingName });
+    } else {
+      params.push({ name, default: buildJsUseDefault(filePath) });
+    }
+  }
+
   const setDecls = buildSetDecls(ctx.sets);
 
   for (const [name, defaultVal] of Object.entries(implicits)) {
-    if (!ctx.uses[name] && (body.includes(name) || setDecls.includes(name))) {
+    if (!ctx.uses[name] && !ctx.jsFileUse[name] && (body.includes(name) || setDecls.includes(name))) {
       params.push({ name, default: defaultVal });
     }
   }
@@ -386,15 +457,55 @@ function transpileSingleTemplate(
 
   const transformDecls = buildModelTransformDecls(ctx.uses, modelTransforms);
   const paramStr = buildParamStr(params);
+  const exportLine = format === 'esm'
+    ? `\nexport { ${fnName} };`
+    : `\nmodule.exports = { ${fnName} };`;
+  const prefix = esmImportLines.length ? esmImportLines.join('\n') + '\n' : '';
   return (
+    prefix +
     buildFunctionBody(fnName, paramStr, setDecls, body, transformDecls) +
-    `\nmodule.exports = { ${fnName} };`
+    exportLine
   );
 }
 
 // ---------------------------------------------------------------------------
 // Code generation helpers
 // ---------------------------------------------------------------------------
+
+/**
+ * Generates the default-parameter expression for a data-sly-use JS/JSON file.
+ *
+ * - JSON files: require() directly — they're always plain objects.
+ * - JS files:  require() and call the export if it's a factory function,
+ *   otherwise use it as-is. This mirrors AEM's JS Use-API pattern where
+ *   a use-script may export either data or a factory (bindings) => data.
+ *
+ * The require() is inside an IIFE so it's evaluated lazily (only when the
+ * caller does not pass an explicit value) but still benefits from Node's
+ * module cache on subsequent calls.
+ */
+function buildJsUseDefault(filePath: string): string {
+  if (filePath.endsWith('.json')) {
+    return `require('${filePath}')`;
+  }
+  return `(() => { const _m = require('${filePath}'); return typeof _m === 'function' ? _m({}) : _m; })()`;
+}
+
+function buildJsUseEsm(
+  varName: string,
+  filePath: string,
+): { importDecl: string; constDecl: string | null; bindingName: string } {
+  const bindingName = `_jsuse_${varName}`;
+  if (filePath.endsWith('.json')) {
+    return { importDecl: `import ${bindingName} from '${filePath}';`, constDecl: null, bindingName };
+  }
+  const rawName = `${bindingName}_raw`;
+  return {
+    importDecl: `import ${rawName} from '${filePath}';`,
+    constDecl: `const ${bindingName} = typeof ${rawName} === 'function' ? ${rawName}({}) : ${rawName};`,
+    bindingName,
+  };
+}
 
 function buildFunctionBody(
   fnName: string,
@@ -466,8 +577,9 @@ export function generateDts(jsSource: string): string {
       .split(',')
       .map((p) => p.replace(/\s*=[\s\S]*/g, '').trim())
       .filter((p) => /^\w+$/.test(p));
+    const slopMapper = slots.map((s) => `'${s}'?: string | (() => string)`).join('; ');
     const incType = slots.length > 0
-      ? `{ ${slots.map((s) => `'${s}'?: string | (() => string)`).join('; ')}; [key: string]: string | (() => string) | undefined }`
+      ? `{ ${slopMapper}; [key: string]: string | (() => string) | undefined }`
       : `Record<string, string | (() => string) | undefined>`;
     const propList = paramNames.map((p) =>
       p === '_includes' ? `${p}?: ${incType}` : `${p}?: any`
@@ -551,6 +663,7 @@ function addFreeVarParams(params: ParamDecl[], ctx: WalkerContext): void {
     ...params.map((p) => p.name),
     ...Object.keys(AEM_IMPLICITS),
     ...Object.keys(ctx.fileUse || {}),
+    ...Object.keys(ctx.jsFileUse || {}),
     ...(ctx.definedVars || []),
   ]);
   for (const ref of ctx.refs || []) {

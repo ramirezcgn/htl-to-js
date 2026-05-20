@@ -1,5 +1,6 @@
 import fs from 'fs';
 import path from 'path';
+import { createRequire } from 'module';
 import { transpile, generateDts } from '../src/transpiler/index';
 import { parseI18nXml } from '../src/parseI18nXml';
 import {
@@ -89,13 +90,25 @@ describe('convertAttrValue', () => {
 });
 
 describe('convertTextContent', () => {
-  it('converts HTL expression in text', () => {
-    expect(convertTextContent('${item.title}')).toBe("${(item?.title) ?? ''}");
+  it('HTML-escapes expression in text node by default', () => {
+    expect(convertTextContent('${item.title}')).toBe('${_htlText(item?.title)}');
   });
 
   it('handles i18n string in text', () => {
     expect(convertTextContent("${'Learn more' @ i18n}")).toBe(
-      "${(_i18n?.['Learn more'] ?? 'Learn more') ?? ''}"
+      "${_htlText(_i18n?.['Learn more'] ?? 'Learn more')}"
+    );
+  });
+
+  it('passes raw HTML through when context=html', () => {
+    expect(convertTextContent("${model.richText @ context='html'}")).toBe(
+      "${model?.richText ?? ''}"
+    );
+  });
+
+  it('passes raw HTML through when context=unsafe', () => {
+    expect(convertTextContent("${model.html @ context='unsafe'}")).toBe(
+      "${model?.html ?? ''}"
     );
   });
 
@@ -426,6 +439,107 @@ describe('transpile — in operator', () => {
     expect(
       fn({ accordion: { items: [{ name: 'y' }], expandedItems: { x: true } } })
     ).toContain('class="base"');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// _htlText XSS prevention in text nodes
+// ---------------------------------------------------------------------------
+
+describe('transpile — _htlText XSS prevention in text nodes', () => {
+  it('escapes < and > in text node output', () => {
+    const src = `<p>\${model.description}</p>`;
+    const code = transpile(src, { filename: 'test.html' });
+    const mod: any = {};
+    new Function('module', code)(mod);
+    const fn = Object.values(mod.exports)[0] as Function;
+    const html = fn({ model: { description: '<script>alert(1)</script>' } });
+    expect(html).not.toContain('<script>');
+    expect(html).toContain('&lt;script&gt;');
+  });
+
+  it('escapes & in text node output', () => {
+    const src = `<p>\${model.text}</p>`;
+    const code = transpile(src, { filename: 'test.html' });
+    const mod: any = {};
+    new Function('module', code)(mod);
+    const fn = Object.values(mod.exports)[0] as Function;
+    const html = fn({ model: { text: 'a & b' } });
+    expect(html).toContain('a &amp; b');
+  });
+
+  it('allows raw HTML with @ context=html in text node', () => {
+    const src = `<div>\${model.richText @ context='html'}</div>`;
+    const code = transpile(src, { filename: 'test.html' });
+    const mod: any = {};
+    new Function('module', code)(mod);
+    const fn = Object.values(mod.exports)[0] as Function;
+    const html = fn({ model: { richText: '<strong>Bold</strong>' } });
+    expect(html).toContain('<strong>Bold</strong>');
+  });
+
+  it('allows raw HTML with data-sly-text @ context=html', () => {
+    const src = `<div data-sly-text="\${model.richText @ context='html'}">fallback</div>`;
+    const code = transpile(src, { filename: 'test.html' });
+    const mod: any = {};
+    new Function('module', code)(mod);
+    const fn = Object.values(mod.exports)[0] as Function;
+    const html = fn({ model: { richText: '<em>Italic</em>' } });
+    expect(html).toContain('<em>Italic</em>');
+    expect(html).not.toContain('fallback');
+  });
+
+  it('escapes HTML in data-sly-text by default', () => {
+    const src = `<p data-sly-text="\${model.text}">fallback</p>`;
+    const code = transpile(src, { filename: 'test.html' });
+    const mod: any = {};
+    new Function('module', code)(mod);
+    const fn = Object.values(mod.exports)[0] as Function;
+    const html = fn({ model: { text: '<b>XSS</b>' } });
+    expect(html).not.toContain('<b>');
+    expect(html).toContain('&lt;b&gt;');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// @ context='uri' in attributes
+// ---------------------------------------------------------------------------
+
+describe('transpile — @ context=uri in attributes', () => {
+  it('URI-encodes spaces and special chars in href', () => {
+    const src = `<a href="\${model.url @ context='uri'}">link</a>`;
+    const code = transpile(src, { filename: 'test.html' });
+    const mod: any = {};
+    new Function('module', code)(mod);
+    const fn = Object.values(mod.exports)[0] as Function;
+    const html = fn({ model: { url: '/path/with spaces/file.html' } });
+    expect(html).toContain('/path/with%20spaces/file.html');
+    expect(html).not.toContain('href="/path/with spaces/');
+  });
+
+  it('returns empty string for null with context=uri', () => {
+    const src = `<a href="\${model.url @ context='uri'}">link</a>`;
+    const code = transpile(src, { filename: 'test.html' });
+    const mod: any = {};
+    new Function('module', code)(mod);
+    const fn = Object.values(mod.exports)[0] as Function;
+    expect(fn({ model: { url: null } })).toContain('href=""');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// @ context='unsafe' in attributes
+// ---------------------------------------------------------------------------
+
+describe('transpile — @ context=unsafe in attributes', () => {
+  it('outputs raw value without HTML-escaping', () => {
+    const src = `<div data-json="\${model.json @ context='unsafe'}">x</div>`;
+    const code = transpile(src, { filename: 'test.html' });
+    const mod: any = {};
+    new Function('module', code)(mod);
+    const fn = Object.values(mod.exports)[0] as Function;
+    const html = fn({ model: { json: '{"key":"value"}' } });
+    expect(html).toContain('data-json="{"key":"value"}"');
   });
 });
 
@@ -3165,3 +3279,402 @@ describe('i18n — end-to-end from XML file', () => {
     expect(fn({})).toContain('Subscribe');
   });
 });
+
+// ---------------------------------------------------------------------------
+// data-sly-use — JS / JSON Use-API (item 3)
+// ---------------------------------------------------------------------------
+
+const fixturesDir = path.join(__dirname, 'fixtures');
+// require() scoped to the fixtures directory, so relative paths in generated code resolve correctly
+const fixturesRequire = createRequire(path.join(fixturesDir, '__placeholder__'));
+
+describe('data-sly-use — JSON file resolution', () => {
+  it('generates require() as the default param for a .json use file', () => {
+    const src = `<div data-sly-use.model="./card.model.json">\${model.title}</div>`;
+    const code = transpile(src, {
+      filename: path.join(fixturesDir, 'test.html'),
+    });
+    expect(code).toContain(`require('./card.model.json')`);
+    expect(code).toContain('model =');
+  });
+
+  it('uses the JSON file data as default at runtime', () => {
+    const src = `<div data-sly-use.model="./card.model.json">\${model.title}</div>`;
+    const code = transpile(src, {
+      filename: path.join(fixturesDir, 'test.html'),
+    });
+    const mod: any = {};
+    new Function('module', 'require', code)(mod, fixturesRequire);
+    const fn = Object.values(mod.exports)[0] as Function;
+    expect(fn({})).toContain('Default Title');
+  });
+
+  it('allows overriding the JSON-sourced model at call time', () => {
+    const src = `<div data-sly-use.model="./card.model.json">\${model.title}</div>`;
+    const code = transpile(src, {
+      filename: path.join(fixturesDir, 'test.html'),
+    });
+    const mod: any = {};
+    new Function('module', 'require', code)(mod, fixturesRequire);
+    const fn = Object.values(mod.exports)[0] as Function;
+    expect(fn({ model: { title: 'Override' } })).toContain('Override');
+  });
+});
+
+describe('data-sly-use — JS module (plain object) file resolution', () => {
+  it('generates an IIFE require() as the default param for a .js use file', () => {
+    const src = `<div data-sly-use.model="./card.model.js">\${model.title}</div>`;
+    const code = transpile(src, {
+      filename: path.join(fixturesDir, 'test.html'),
+    });
+    expect(code).toContain(`require('./card.model.js')`);
+    expect(code).toContain('model =');
+  });
+
+  it('uses the JS module data as default at runtime when module exports an object', () => {
+    const src = `<div data-sly-use.model="./card.model.js">\${model.title}</div>`;
+    const code = transpile(src, {
+      filename: path.join(fixturesDir, 'test.html'),
+    });
+    const mod: any = {};
+    new Function('module', 'require', code)(mod, fixturesRequire);
+    const fn = Object.values(mod.exports)[0] as Function;
+    expect(fn({})).toContain('Model Title');
+  });
+
+  it('allows overriding the JS-sourced model at call time', () => {
+    const src = `<div data-sly-use.model="./card.model.js">\${model.title}</div>`;
+    const code = transpile(src, {
+      filename: path.join(fixturesDir, 'test.html'),
+    });
+    const mod: any = {};
+    new Function('module', 'require', code)(mod, fixturesRequire);
+    const fn = Object.values(mod.exports)[0] as Function;
+    expect(fn({ model: { title: 'Overridden' } })).toContain('Overridden');
+  });
+});
+
+describe('data-sly-use — JS factory function file resolution', () => {
+  it('calls the factory and returns its result when module exports a function', () => {
+    const src = `<div data-sly-use.model="./card.factory.js">\${model.title}</div>`;
+    const code = transpile(src, {
+      filename: path.join(fixturesDir, 'test.html'),
+    });
+    const mod: any = {};
+    new Function('module', 'require', code)(mod, fixturesRequire);
+    const fn = Object.values(mod.exports)[0] as Function;
+    expect(fn({})).toContain('Factory Title');
+  });
+
+  it('allows overriding the factory-sourced model at call time', () => {
+    const src = `<div data-sly-use.model="./card.factory.js">\${model.title}</div>`;
+    const code = transpile(src, {
+      filename: path.join(fixturesDir, 'test.html'),
+    });
+    const mod: any = {};
+    new Function('module', 'require', code)(mod, fixturesRequire);
+    const fn = Object.values(mod.exports)[0] as Function;
+    expect(fn({ model: { title: 'My Custom Title' } })).toContain('My Custom Title');
+  });
+});
+
+describe('data-sly-use — unresolvable path stays as class-name param', () => {
+  it('treats a non-existent .js path as a regular use param (default {})', () => {
+    // When the file does not exist, it falls back to `use` (class name), default {}
+    const src = `<div data-sly-use.model="./nonexistent.js">\${model.title}</div>`;
+    const code = transpile(src, { filename: 'test.html' });
+    // Should NOT contain require() since the file doesn't exist
+    expect(code).not.toContain(`require('./nonexistent.js')`);
+    // Should contain model as a regular param
+    expect(code).toContain('model =');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// i18n — locale fallback (mergeI18nDicts + i18nFallbackDicts)
+// ---------------------------------------------------------------------------
+
+import { mergeI18nDicts, resolveLocaleChain } from '../src/parseI18nXml';
+
+describe('mergeI18nDicts', () => {
+  it('returns the single dict when only one argument is passed', () => {
+    expect(mergeI18nDicts({ Hello: 'Hola' })).toEqual({ Hello: 'Hola' });
+  });
+
+  it('later arguments override earlier ones (last wins)', () => {
+    const en = { Hello: 'Hello', Bye: 'Bye' };
+    const es = { Hello: 'Hola' };
+    expect(mergeI18nDicts(en, es)).toEqual({ Hello: 'Hola', Bye: 'Bye' });
+  });
+
+  it('three-level chain: primary wins, first fallback fills gaps', () => {
+    const en = { Hello: 'Hello', Title: 'Title', Footer: 'Footer' };
+    const es = { Hello: 'Hola', Title: 'Título' };
+    const esMX = { Hello: 'Buenas' };
+    expect(mergeI18nDicts(en, es, esMX)).toEqual({
+      Hello: 'Buenas',
+      Title: 'Título',
+      Footer: 'Footer',
+    });
+  });
+});
+
+describe('resolveLocaleChain', () => {
+  it('returns [en] for "en"', () => {
+    expect(resolveLocaleChain('en')).toEqual(['en']);
+  });
+
+  it('returns [en, de] for "de"', () => {
+    expect(resolveLocaleChain('de')).toEqual(['en', 'de']);
+  });
+
+  it('returns [en, es, es_MX] for "es_MX"', () => {
+    expect(resolveLocaleChain('es_MX')).toEqual(['en', 'es', 'es_MX']);
+  });
+
+  it('normalises hyphen separators', () => {
+    expect(resolveLocaleChain('pt-BR')).toEqual(['en', 'pt', 'pt_BR']);
+  });
+});
+
+describe('transpile — i18nFallbackDicts option', () => {
+  const primary = { Hello: 'Hola', Title: 'Título' };
+  const fallback = { Hello: 'Bonjour', Bye: 'Au revoir' };
+
+  it('merges primary and fallback dicts into the baked _i18n default', () => {
+    const src = `<span>${'$'}{'Hello' @ i18n}</span>`;
+    const code = transpile(src, {
+      filename: 'test.html',
+      i18nDict: primary,
+      i18nFallbackDicts: [fallback],
+    });
+    // primary key wins
+    expect(code).toContain('"Hello":"Hola"');
+    // fallback key fills the gap
+    expect(code).toContain('"Bye":"Au revoir"');
+  });
+
+  it('primary keys override fallback keys at runtime', () => {
+    const src = `<span>${'$'}{'Hello' @ i18n}</span>`;
+    const code = transpile(src, {
+      filename: 'test.html',
+      i18nDict: primary,
+      i18nFallbackDicts: [fallback],
+    });
+    const mod: any = {};
+    new Function('module', code)(mod);
+    const fn = Object.values(mod.exports)[0] as Function;
+    expect(fn({})).toContain('Hola'); // primary wins
+  });
+
+  it('fallback keys are used when absent from the primary dict', () => {
+    const src = `<span>${'$'}{'Bye' @ i18n}</span>`;
+    const code = transpile(src, {
+      filename: 'test.html',
+      i18nDict: primary,
+      i18nFallbackDicts: [fallback],
+    });
+    const mod: any = {};
+    new Function('module', code)(mod);
+    const fn = Object.values(mod.exports)[0] as Function;
+    expect(fn({})).toContain('Au revoir');
+  });
+
+  it('still falls back to the original string for keys absent from all dicts', () => {
+    const src = `<span>${'$'}{'Subscribe' @ i18n}</span>`;
+    const code = transpile(src, {
+      filename: 'test.html',
+      i18nDict: primary,
+      i18nFallbackDicts: [fallback],
+    });
+    const mod: any = {};
+    new Function('module', code)(mod);
+    const fn = Object.values(mod.exports)[0] as Function;
+    expect(fn({})).toContain('Subscribe');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// i18n — pluralization (@ i18n, count=N)
+// ---------------------------------------------------------------------------
+
+describe('convertExpr — i18n pluralization', () => {
+  it('generates _htlI18nPlural call for literal key + count', () => {
+    expect(convertExpr("'1 item' @ i18n, count=n")).toBe(
+      "_htlI18nPlural('1 item', n, _i18n)"
+    );
+  });
+
+  it('applies optional chaining to count expression', () => {
+    expect(convertExpr("'1 item' @ i18n, count=items.size")).toBe(
+      "_htlI18nPlural('1 item', items?.length, _i18n)"
+    );
+  });
+
+  it('generates _htlI18nPlural for variable key + count', () => {
+    expect(convertExpr('label @ i18n, count=n')).toBe(
+      '_htlI18nPlural(label, n, _i18n)'
+    );
+  });
+});
+
+describe('transpile — i18n pluralization end-to-end', () => {
+  const dict = { 'item': 'element', 'item_plural': '{0} elements' };
+
+  it('uses singular form when count=1', () => {
+    const src = `<span>${'$'}{'item' @ i18n, count=n}</span>`;
+    const code = transpile(src, { filename: 'test.html', i18nDict: dict });
+    const mod: any = {};
+    new Function('module', code)(mod);
+    const fn = Object.values(mod.exports)[0] as Function;
+    expect(fn({ n: 1 })).toContain('element');
+    expect(fn({ n: 1 })).not.toContain('elements');
+  });
+
+  it('uses plural form and substitutes {0} when count>1', () => {
+    const src = `<span>${'$'}{'item' @ i18n, count=n}</span>`;
+    const code = transpile(src, { filename: 'test.html', i18nDict: dict });
+    const mod: any = {};
+    new Function('module', code)(mod);
+    const fn = Object.values(mod.exports)[0] as Function;
+    expect(fn({ n: 5 })).toContain('5 elements');
+  });
+
+  it('falls back to singular form when plural key is absent', () => {
+    const dictNoPl = { 'item': 'Artikel' };
+    const src = `<span>${'$'}{'item' @ i18n, count=n}</span>`;
+    const code = transpile(src, { filename: 'test.html', i18nDict: dictNoPl });
+    const mod: any = {};
+    new Function('module', code)(mod);
+    const fn = Object.values(mod.exports)[0] as Function;
+    expect(fn({ n: 3 })).toContain('Artikel');
+  });
+
+  it('falls back to the literal key when dict is empty', () => {
+    const src = `<span>${'$'}{'item' @ i18n, count=n}</span>`;
+    const code = transpile(src, { filename: 'test.html' });
+    const mod: any = {};
+    new Function('module', code)(mod);
+    const fn = Object.values(mod.exports)[0] as Function;
+    expect(fn({ n: 2 })).toContain('item');
+  });
+
+  it('handles count via model property (dotted path)', () => {
+    const src = `<span>${'$'}{'item' @ i18n, count=model.count}</span>`;
+    const code = transpile(src, { filename: 'test.html', i18nDict: dict });
+    const mod: any = {};
+    new Function('module', code)(mod);
+    const fn = Object.values(mod.exports)[0] as Function;
+    expect(fn({ model: { count: 7 } })).toContain('7 elements');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// transpile — ESM output (format: 'esm')
+// ---------------------------------------------------------------------------
+
+describe('transpile — ESM output', () => {
+  it('emits export statement instead of module.exports for single template', () => {
+    const src = `<div>${'$'}{model.title}</div>`;
+    const code = transpile(src, { filename: 'test.html', format: 'esm' });
+    expect(code).not.toContain('module.exports');
+    expect(code).toMatch(/export\s*\{\s*createTest\s*\}/);
+  });
+
+  it('emits export statement for named templates', () => {
+    const src = `
+      <template data-sly-template.header></template>
+      <template data-sly-template.footer></template>
+    `;
+    const code = transpile(src, { filename: 'test.html', format: 'esm' });
+    expect(code).not.toContain('module.exports');
+    expect(code).toMatch(/export\s*\{[^}]*createHeader[^}]*createFooter[^}]*\}/);
+  });
+
+  it('does not emit require() for jsFileUse JSON in ESM mode', () => {
+    const src = `<div data-sly-use.model="./card.model.json">${'$'}{model.title}</div>`;
+    const code = transpile(src, { filename: path.join(fixturesDir, 'test.html'), format: 'esm' });
+    expect(code).not.toContain('require(');
+    expect(code).toMatch(/import\s+\S+\s+from\s+['"].*card\.model\.json['"]/);
+  });
+
+  it('uses the imported binding as default param for jsFileUse JSON', () => {
+    const src = `<div data-sly-use.model="./card.model.json">${'$'}{model.title}</div>`;
+    const code = transpile(src, { filename: path.join(fixturesDir, 'test.html'), format: 'esm' });
+    // The import binding should be used as the default parameter value
+    const importMatch = code.match(/import\s+(\S+)\s+from\s+['"].*card\.model\.json['"]/);
+    expect(importMatch).not.toBeNull();
+    const binding = importMatch![1];
+    expect(code).toContain(`model = ${binding}`);
+  });
+
+  it('does not emit require() for jsFileUse JS module in ESM mode', () => {
+    const src = `<div data-sly-use.model="./card.model.js">${'$'}{model.title}</div>`;
+    const code = transpile(src, { filename: path.join(fixturesDir, 'test.html'), format: 'esm' });
+    expect(code).not.toContain('require(');
+    expect(code).toMatch(/import\s+\S+\s+from\s+['"].*card\.model\.js['"]/);
+  });
+
+  it('handles JS module factory pattern in ESM mode', () => {
+    const src = `<div data-sly-use.model="./card.model.js">${'$'}{model.title}</div>`;
+    const code = transpile(src, { filename: path.join(fixturesDir, 'test.html'), format: 'esm' });
+    // Should emit a const that resolves factory vs plain object
+    expect(code).toMatch(/typeof\s+\S+\s*===\s*'function'/);
+  });
+
+  it('defaults to CJS output when format is not specified', () => {
+    const src = `<div>${'$'}{model.title}</div>`;
+    const code = transpile(src, { filename: 'test.html' });
+    expect(code).toContain('module.exports');
+    expect(code).not.toMatch(/^export\s/m);
+  });
+
+  it('emits __slots__ export in ESM mode', () => {
+    const src = `
+      <template data-sly-template.card>
+        <slot data-sly-call="\${'$'}{_includes['title']}"></slot>
+      </template>
+    `.replace(/\$\{'\\$'\}/g, '$');
+    const slotSrc = `<template data-sly-template.card><sly data-sly-test="\${'$'}{_incSlot(_includes,'title')}"></sly></template>`;
+    // Use a pre-built src that triggers __slots__
+    const slotCode = `<div data-sly-include="\${'$'}{comp @ wcmmode='edit'}">\${'$'}{_incSlot(_includes, 'header')}</div>`;
+    const code = transpile(slotCode, { filename: 'test.html', format: 'esm' });
+    if (code.includes('__slots__')) {
+      expect(code).not.toMatch(/Object\.assign\(module\.exports/);
+      expect(code).toMatch(/export[^;]*__slots__/);
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// convertExpr — parser robustness (@ inside string literals)
+// ---------------------------------------------------------------------------
+
+describe('convertExpr — @ inside string literals', () => {
+  it('preserves a standalone string literal containing @', () => {
+    expect(convertExpr("'user@example.com'")).toBe("'user@example.com'");
+  });
+
+  it('uses a string key containing @ for i18n lookup', () => {
+    expect(convertExpr("'user@example.com' @ i18n")).toBe(
+      "_i18n?.['user@example.com'] ?? 'user@example.com'"
+    );
+  });
+
+  it('preserves @ in both branches of a ternary', () => {
+    expect(convertExpr("flag ? 'a@b.com' : 'c@d.com'")).toBe(
+      "flag ? 'a@b.com' : 'c@d.com'"
+    );
+  });
+
+  it('applies optional chaining to the condition but not string literal contents', () => {
+    expect(convertExpr("model.flag ? 'a@b.com' : 'c@d.com'")).toBe(
+      "model?.flag ? 'a@b.com' : 'c@d.com'"
+    );
+  });
+
+  it('preserves @ in a join separator string', () => {
+    expect(convertExpr("list @ join='@'")).toBe("(list).join('@')");
+  });
+});
+

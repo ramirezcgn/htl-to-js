@@ -22,7 +22,7 @@ import fs from 'node:fs';
 function htlLoader(this: any, source: string): string {
   this.cacheable(true);
 
-  const { i18nPath, ...transpileOptions } = this.getOptions ? this.getOptions() : {} as any;
+  const { i18nPath, i18nFallbackPaths, ...transpileOptions } = this.getOptions ? this.getOptions() : {} as any;
 
   let i18nDict: Record<string, string> | undefined;
   if (i18nPath) {
@@ -35,8 +35,23 @@ function htlLoader(this: any, source: string): string {
     }
   }
 
+  let i18nFallbackDicts: Record<string, string>[] | undefined;
+  if (Array.isArray(i18nFallbackPaths) && i18nFallbackPaths.length) {
+    i18nFallbackDicts = [];
+    for (const fbPath of i18nFallbackPaths) {
+      this.addDependency(fbPath);
+      try {
+        const xmlContent = fs.readFileSync(fbPath, 'utf8');
+        i18nFallbackDicts.push(parseI18nXml(xmlContent));
+      } catch (err: any) {
+        this.emitWarning(new Error(`[htl-to-js] Could not load i18n fallback file ${fbPath}: ${err.message}`));
+      }
+    }
+    if (!i18nFallbackDicts.length) i18nFallbackDicts = undefined;
+  }
+
   try {
-    return transpile(source, { filename: this.resourcePath, ...transpileOptions, i18nDict });
+    return transpile(source, { filename: this.resourcePath, ...transpileOptions, i18nDict, i18nFallbackDicts });
   } catch (err: any) {
     this.emitError(
       new Error(`[htl-to-js] ${this.resourcePath}: ${err.message}`)

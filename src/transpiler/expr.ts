@@ -1,4 +1,77 @@
 /**
+ * Splits an HTL expression at the first @ that sits at the top level —
+ * i.e. not inside a string literal, parentheses, or brackets.
+ * Returns [valuePart, optionsPart] where optionsPart is null when there is no @.
+ */
+function splitAtAtSign(expr: string): [string, string | null] {
+  let inStr: string | null = null;
+  let depth = 0;
+  for (let i = 0; i < expr.length; i++) {
+    const c = expr[i];
+    if (inStr) {
+      if (c === '\\') { i++; continue; }
+      if (c === inStr) inStr = null;
+      continue;
+    }
+    if (c === "'" || c === '"') { inStr = c; continue; }
+    if (c === '(' || c === '[') { depth++; continue; }
+    if (c === ')' || c === ']') { depth--; continue; }
+    if (c === '@' && depth === 0) {
+      return [expr.slice(0, i).trim(), expr.slice(i + 1).trim()];
+    }
+  }
+  return [expr.trim(), null];
+}
+
+/**
+ * Applies value-level HTL-to-JS transforms to an expression fragment:
+ * optional chaining, .size → .length, jcr: property access, in-operator,
+ * and reserved-word renaming (class, for).
+ *
+ * String literals inside the expression are protected so their content is
+ * never accidentally modified.
+ */
+function transformValue(expr: string): string {
+  // Protect string literals from being mangled by the transforms below.
+  const strings: string[] = [];
+  let result = expr.replace(/'[^']*'|"[^"]*"/g, (m) => {
+    strings.push(m);
+    return `__STR${strings.length - 1}__`;
+  });
+
+  // Protect array literals (used in @format args etc.)
+  const arrays: string[] = [];
+  result = result.replace(/\[[^\]]*\]/g, (m) => {
+    arrays.push(m);
+    return `__ARR${arrays.length - 1}__`;
+  });
+
+  result = result
+    .replace(/\.size\b/g, '.length')
+    .replace(/(\w+)\.jcr:(\w+)/g, "$1?.['jcr:$2']")
+    .trim();
+
+  // Restore arrays before optional-chaining so a[i] becomes a?.[i].
+  arrays.forEach((arr, i) => { result = result.replace(`__ARR${i}__`, arr); });
+
+  result = result
+    .replace(/(\w|\])(?<!\?)\[/g, '$1?.[')
+    .replace(/(\w|\])\.(?=([\w$]))/g, (m, a: string, b: string) =>
+      /\d/.test(a) && /\d/.test(b) ? m : `${a}?.`
+    )
+    .replace(
+      /([\w$.?[\]]+)\s+in\s+([\w$.?[\]]+)/g,
+      (_match, left: string, right: string) => `(${right}) && (${left} in ${right})`
+    )
+    .replace(/(?<![?.])\b(class|for)\b/g, '_$1');
+
+  // Restore string literals last so their content is never touched.
+  strings.forEach((str, i) => { result = result.replace(`__STR${i}__`, str); });
+
+  return result;
+}
+
+/**
  * Converts a raw HTL expression (with or without ${}) to a JS expression string.
  *
  * Examples:
@@ -14,85 +87,92 @@ export function convertExpr(raw: string): string {
     inner = inner.slice(2, -1).trim();
   }
 
-  const i18nMatch = /^\s*(['"])([^'"]*?)\1\s*@\s*(?:.*,\s*)?i18n\b/.exec(inner);
-  const hasVarI18n = !i18nMatch && /@[^@]*\bi18n\b/.test(inner);
+  // Split at the first top-level @ so that @ inside string literals is
+  // never mistaken for the option separator.
+  const [valuePart, optStr] = splitAtAtSign(inner);
 
-  inner = inner.replace(
-    /^([\s\S]+?)\s*@\s*join\s*=\s*(?:'([^']*)'|"([^"]*)")/,
-    (_: string, expr: string, sepSingle: string, sepDouble: string) => {
-      const sep = sepSingle ?? sepDouble;
-      return `(${expr.trim()}).join('${sep}')`;
-    }
-  );
+  // --- Parse options from the options string only ---
+  const hasI18n = optStr != null && /(?:^|,)\s*i18n\b/.test(optStr);
+  const i18nLiteralMatch = hasI18n
+    ? /^\s*(['"])([^'"]*?)\1\s*$/.exec(valuePart)
+    : null;
+  const hasVarI18n = hasI18n && i18nLiteralMatch == null;
 
-  inner = inner.replaceAll(
-    /['"]([^'"]*)['"]\s*@\s*format=\[([^\]]*)\]/g,
-    (_: string, tmpl: string, args: string) => {
-      const argList = args.split(',').map((a) => a.trim());
+  const countRaw =
+    optStr == null
+      ? null
+      : /\bcount\s*=\s*((?:'[^']*'|"[^"]*"|[^,\s'")}]+))/.exec(optStr)?.[1];
+
+  const joinMatch =
+    optStr == null
+      ? null
+      : /\bjoin\s*=\s*(?:'([^']*)'|"([^"]*)")/.exec(optStr);
+
+  const formatArgs =
+    optStr == null
+      ? null
+      : /\bformat\s*=\s*\[([^\]]*)\]/.exec(optStr)?.[1];
+
+  const urlencodeMatch =
+    optStr != null && /\bcontext\s*=\s*['"]urlencode['"]/i.test(optStr);
+
+  // --- Apply @format: expand a string template against an argument list ---
+  if (formatArgs != null) {
+    const templateMatch = /^\s*(['"])([^'"]*)\1\s*$/.exec(valuePart);
+    if (templateMatch) {
+      const tmpl = templateMatch[2];
+      const args = formatArgs.split(',').map((a) => a.trim());
       const parts = tmpl.split(/\{(\d+)\}/);
-      return (
+      const result =
         parts
           .map((part, i) =>
             i % 2 === 1
-              ? argList[Number.parseInt(part)] || "''"
+              ? args[Number.parseInt(part)]
+                ? transformValue(args[Number.parseInt(part)])
+                : "''"
               : part
                 ? `'${part}'`
                 : null
           )
           .filter(Boolean)
-          .join(' + ') || "''"
-      );
+          .join(' + ') || "''";
+      return urlencodeMatch ? `encodeURIComponent(${result} ?? '')` : result;
     }
-  );
+  }
 
-  const arrays: string[] = [];
-  inner = inner.replaceAll(/\[[^\]]*\]/g, (m) => {
-    arrays.push(m);
-    return `__ARR${arrays.length - 1}__`;
-  });
+  // --- Apply value-level transforms ---
+  let value = transformValue(valuePart);
 
-  const urlencodeMatch = /\s*@\s*(?:.*,\s*)?context\s*=\s*['"]urlencode['"]/i.test(inner);
+  // --- Apply @join ---
+  if (joinMatch) {
+    const sep = joinMatch[1] ?? joinMatch[2];
+    value = `(${value}).join('${sep}')`;
+  }
 
-  const OPT_VAL = String.raw`(?:'[^']*'|"[^"]*"|__ARR\d+__|(?:[^,@}'"\n]|'[^']*'|"[^"]*")+)`;
-  inner = inner
-    .replaceAll(new RegExp(String.raw`\s*@\s*[\w]+\s*=\s*${OPT_VAL}`, 'g'), '')
-    .replaceAll(new RegExp(String.raw`,\s*\w+\s*=\s*${OPT_VAL}`, 'g'), '')
-    .replaceAll(/,\s*\w+\b(?!\s*[=.(])/g, '')
-    .replaceAll(/\s*@\s*\w+\b/g, '')
-    .replaceAll(/\s*@\s*$/g, '')
-    .replaceAll(/\.size\b/g, '.length')
-    .replaceAll(/(\w+)\.jcr:(\w+)/g, "$1?.['jcr:$2']")
-    .trim();
-
-  arrays.forEach((arr, i) => {
-    inner = inner.replace(`__ARR${i}__`, arr);
-  });
-
-  inner = inner.replaceAll(/(\w|\])(?<!\?)\[/g, '$1?.[');
-  inner = inner.replaceAll(/(\w|\])\.(?=([\w$]))/g, (m, a, b) =>
-    /\d/.test(a) && /\d/.test(b) ? m : `${a}?.`
-  );
-  inner = inner.replaceAll(
-    /([\w$.?[\]]+)\s+in\s+([\w$.?[\]]+)/g,
-    (_match: string, left: string, right: string) => {
-      return `(${right}) && (${left} in ${right})`;
+  // --- Apply @i18n / @count (pluralisation) ---
+  if (i18nLiteralMatch) {
+    const key = i18nLiteralMatch[2].replaceAll("'", String.raw`\'`);
+    if (countRaw == null) {
+      value = `_i18n?.['${key}'] ?? ${valuePart}`;
+    } else {
+      value = `_htlI18nPlural('${key}', ${convertExpr(countRaw)}, _i18n)`;
     }
-  );
+  } else if (hasVarI18n) {
+    const needsParens = /\|\||&&/.test(value);
+    const safe = needsParens ? `(${value})` : value;
+    if (countRaw == null) {
+      value = `_i18n?.[${safe}] ?? ${safe}`;
+    } else {
+      value = `_htlI18nPlural(${safe}, ${convertExpr(countRaw)}, _i18n)`;
+    }
+  }
 
-  inner = inner.replaceAll(/(?<![?.])\b(class|for)\b/g, '_$1');
-  if (i18nMatch) {
-    const escapedKey = i18nMatch[2].replaceAll("'", String.raw`\'`);
-    inner = "_i18n?.['" + escapedKey + "'] ?? " + inner;
-  }
-  if (hasVarI18n) {
-    const needsParens = /\|\||\&\&/.test(inner);
-    const safe = needsParens ? `(${inner})` : inner;
-    inner = `_i18n?.[${safe}] ?? ${safe}`;
-  }
+  // --- Apply @context='urlencode' ---
   if (urlencodeMatch) {
-    inner = `encodeURIComponent(${inner} ?? '')`;
+    value = `encodeURIComponent(${value} ?? '')`;
   }
-  return inner;
+
+  return value;
 }
 
 interface ExprMatch {
@@ -129,15 +209,33 @@ export function extractExprs(str: string): ExprMatch[] {
 }
 
 /**
+ * Extracts the @ context='...' value from a raw HTL expression string.
+ * Returns the lowercase context name, or null if not specified.
+ */
+export function extractContext(raw: string): string | null {
+  const m = /\bcontext\s*=\s*['"](\w+)['"]/.exec(raw);
+  return m ? m[1].toLowerCase() : null;
+}
+
+/**
  * Converts all ${htlExpr} occurrences within an attribute value string,
  * while escaping literal backticks and bare $ signs.
+ * Respects @ context option: 'unsafe' skips HTML-escaping, 'uri' applies URI encoding.
  */
 export function convertAttrValue(value: string): string {
   const parts: string[] = [];
   let last = 0;
   for (const { index, expr, end } of extractExprs(value)) {
     if (index > last) parts.push(escapeLiteral(value.slice(last, index)));
-    parts.push(`\${_htlAttr(${convertExpr(expr)})}`);
+    const ctx = extractContext(expr);
+    const converted = convertExpr(expr);
+    if (ctx === 'unsafe') {
+      parts.push(`\${${converted} ?? ''}`);
+    } else if (ctx === 'uri') {
+      parts.push(`\${_htlUri(${converted})}`);
+    } else {
+      parts.push(`\${_htlAttr(${converted})}`);
+    }
     last = end;
   }
   if (last < value.length) parts.push(escapeLiteral(value.slice(last)));
@@ -153,7 +251,13 @@ export function convertTextContent(text: string): string {
   let last = 0;
   for (const { index, expr, end } of extractExprs(text)) {
     if (index > last) parts.push(escapeLiteral(text.slice(last, index)));
-    parts.push(`\${(${convertExpr(expr)}) ?? ''}`);
+    const ctx = extractContext(expr);
+    const converted = convertExpr(expr);
+    if (ctx === 'html' || ctx === 'unsafe') {
+      parts.push(`\${${converted} ?? ''}`);
+    } else {
+      parts.push(`\${_htlText(${converted})}`);
+    }
     last = end;
   }
   if (last < text.length) parts.push(escapeLiteral(text.slice(last)));

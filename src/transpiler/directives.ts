@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { convertExpr, convertAttrValue, extractExprs } from './expr';
+import { convertExpr, convertAttrValue, extractExprs, extractContext } from './expr';
 
 export interface SetDecl {
   name: string;
@@ -17,12 +17,14 @@ export interface Directives {
   use: Record<string, string>;
   useDefaults: Record<string, string>;
   fileUse: Record<string, string>;
+  jsFileUse: Record<string, string>;
   test: string | null;
   repeat: { varName: string; listExpr: string; listMode: boolean } | null;
   element: string | null;
   unwrap: string | null;
   sets: SetDecl[];
   text: string | null;
+  textContext: string | null;
   resource: string | null;
   resourceType: string | null;
   template: { name: string; params: string[] } | null;
@@ -31,6 +33,47 @@ export interface Directives {
   dynamicAttrs?: { name: string; expr: string }[];
   spreadAttr?: string | null;
   skip: Set<string>;
+}
+
+/**
+ * Resolves a JS or JSON data-sly-use path to a require()-ready relative path.
+ * Walks up the directory tree (up to 4 levels) to find the file.
+ * Returns a './relative/path.js' or './relative/path.json' string, or null.
+ */
+function resolveJsUsePath(val: string, sourceDir: string): string | null {
+  if (!sourceDir) return null;
+  if (val.includes('${')) return null;
+  const isJs = val.endsWith('.js');
+  const isJson = val.endsWith('.json');
+  if (!isJs && !isJson) return null;
+
+  if (val.startsWith('/')) {
+    let dir = sourceDir;
+    for (let i = 0; i < 10; i++) {
+      const jcrRoot = path.join(dir, 'jcr_root');
+      if (fs.existsSync(jcrRoot)) {
+        const candidate = path.join(jcrRoot, val);
+        if (fs.existsSync(candidate)) {
+          const rel = path.relative(sourceDir, candidate).replaceAll('\\', '/');
+          return rel.startsWith('.') ? rel : `./${rel}`;
+        }
+        return null;
+      }
+      dir = path.dirname(dir);
+    }
+    return null;
+  }
+
+  let dir = sourceDir;
+  for (let i = 0; i < 4; i++) {
+    const candidate = path.join(dir, val);
+    if (fs.existsSync(candidate)) {
+      const rel = path.relative(sourceDir, candidate).replaceAll('\\', '/');
+      return rel.startsWith('.') ? rel : `./${rel}`;
+    }
+    dir = path.dirname(dir);
+  }
+  return null;
 }
 
 /**
@@ -94,12 +137,14 @@ export function parseDirectives(
     use: {},
     useDefaults: {},
     fileUse: {},
+    jsFileUse: {},
     test: null,
     repeat: null,
     element: null,
     unwrap: null,
     sets: [],
     text: null,
+    textContext: null,
     resource: null,
     resourceType: null,
     template: null,
@@ -114,8 +159,11 @@ export function parseDirectives(
       const name = useMatch[1];
       const trimmed = val.trim();
       const requirePath = sourceDir ? resolveHtlPath(trimmed, sourceDir) : null;
+      const jsRequirePath = requirePath ? null : (sourceDir ? resolveJsUsePath(trimmed, sourceDir) : null);
       if (requirePath) {
         directives.fileUse[name] = requirePath;
+      } else if (jsRequirePath) {
+        directives.jsFileUse[name] = jsRequirePath;
       } else {
         directives.use[name] = val;
         const def = parseUseDefault(trimmed);
@@ -193,6 +241,7 @@ export function parseDirectives(
 
     if (key === 'data-sly-text') {
       directives.text = convertExpr(val);
+      directives.textContext = extractContext(val);
       directives.skip.add(key);
       continue;
     }

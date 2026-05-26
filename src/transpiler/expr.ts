@@ -230,7 +230,8 @@ export function convertAttrValue(value: string): string {
     const ctx = extractContext(expr);
     const converted = convertExpr(expr);
     if (ctx === 'unsafe') {
-      parts.push(`\${${converted} ?? ''}`);
+      const safe = /\|\||&&/.test(converted) ? `(${converted})` : converted;
+      parts.push(`\${${safe} ?? ''}`);
     } else if (ctx === 'uri') {
       parts.push(`\${_htlUri(${converted})}`);
     } else {
@@ -254,7 +255,8 @@ export function convertTextContent(text: string): string {
     const ctx = extractContext(expr);
     const converted = convertExpr(expr);
     if (ctx === 'html' || ctx === 'unsafe') {
-      parts.push(`\${${converted} ?? ''}`);
+      const safe = /\|\||&&/.test(converted) ? `(${converted})` : converted;
+      parts.push(`\${${safe} ?? ''}`);
     } else {
       parts.push(`\${_htlText(${converted})}`);
     }

@@ -112,6 +112,24 @@ describe('convertTextContent', () => {
     );
   });
 
+  it('wraps || expression in parens before ?? when context=html', () => {
+    expect(convertTextContent("${model.desc || model.title @ context='html'}")).toBe(
+      "${(model?.desc || model?.title) ?? ''}"
+    );
+  });
+
+  it('wraps && expression in parens before ?? when context=html', () => {
+    expect(convertTextContent("${model.show && model.text @ context='html'}")).toBe(
+      "${(model?.show && model?.text) ?? ''}"
+    );
+  });
+
+  it('wraps || expression in parens before ?? when context=unsafe', () => {
+    expect(convertTextContent("${model.a || model.b @ context='unsafe'}")).toBe(
+      "${(model?.a || model?.b) ?? ''}"
+    );
+  });
+
   it('escapes literal backticks', () => {
     expect(convertTextContent('use `this`')).toBe('use \\`this\\`');
   });

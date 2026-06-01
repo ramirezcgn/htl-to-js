@@ -725,10 +725,13 @@ const modelTransforms = {
 
 The function receives the actual variable name (e.g. `container`) and must return a JS expression string. This is useful when the transform expression needs to reference the variable precisely.
 
-**Direct code callbacks** — `modelTransforms` also accepts functions with destructured bindings such as `({ model }) => ...` or `({ model, _includes, varName }) => ...`. In this mode the callback body is serialized into the generated module, and `model` is replaced with the actual use-binding variable:
+**Direct code callbacks** — `modelTransforms` also accepts direct callbacks such as `() => 'RESPONSIVE_GRID'`, `({ model }) => ...`, or `({ model, _includes, varName }) => ...`. In this mode the callback body is serialized into the generated module, and `model` is replaced with the actual use-binding variable:
 
 ```js
 const modelTransforms = {
+  LayoutContainer: {
+    layout: () => 'RESPONSIVE_GRID',
+  },
   ColContainer: {
     id: ({ model }) => model?._internalId ?? '',
     columns: ({ model }) => {

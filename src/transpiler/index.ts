@@ -575,9 +575,33 @@ function resolveModelTransformValue(
   }
 
   const directExpr = serializeDirectModelTransform(value, varName);
+
+  if (value.length === 0) {
+    try {
+      const legacyResult = (value as () => unknown)();
+      if (
+        typeof legacyResult === 'string' &&
+        shouldTreatZeroArgStringResultAsLegacy(legacyResult)
+      ) {
+        return legacyResult.replaceAll(/\bmodel\b/g, varName);
+      }
+    } catch {
+      // Fall through to direct-code serialization.
+    }
+  }
+
   if (directExpr != null) return directExpr;
 
   return (value as LegacyModelTransformFn)(varName);
+}
+
+function shouldTreatZeroArgStringResultAsLegacy(result: string): boolean {
+  const trimmed = result.trim();
+  if (!trimmed) return false;
+
+  if (/^(['"`]).*\1$/s.test(trimmed)) return true;
+
+  return /[()[\]{}?.:+\-*/%<>=&|!,]/.test(trimmed);
 }
 
 function serializeDirectModelTransform(
@@ -601,6 +625,23 @@ function parseDirectTransformSource(
   value: Function,
 ): { params: string; body: string; isBlock: boolean } | null {
   const source = Function.prototype.toString.call(value).trim();
+
+  const emptyArrowMatch = source.match(/^\(\s*\)\s*=>\s*([\s\S]*)$/);
+  if (emptyArrowMatch) {
+    const rawBody = emptyArrowMatch[1].trim();
+    if (rawBody.startsWith('{') && rawBody.endsWith('}')) {
+      return {
+        params: '',
+        body: rawBody.slice(1, -1).trim(),
+        isBlock: true,
+      };
+    }
+    return {
+      params: '',
+      body: rawBody,
+      isBlock: false,
+    };
+  }
 
   const arrowMatch = source.match(/^\(\s*\{([\s\S]*?)\}\s*\)\s*=>\s*([\s\S]*)$/);
   if (arrowMatch) {
@@ -656,7 +697,7 @@ function parseDirectTransformBindings(
     return null;
   }
 
-  return bindings.size ? bindings : null;
+  return bindings;
 }
 
 function resolveDirectBindingValue(bindingName: string, varName: string): string {

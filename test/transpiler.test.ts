@@ -3142,6 +3142,19 @@ describe('transpile — modelTransforms with function values', () => {
     expect(fn({ model: { theme: 'light' } })).toContain('class="light"');
   });
 
+  it('keeps zero-argument legacy callbacks compatible with non-model bindings', () => {
+    const src = `<div data-sly-use.container="com.example.LayoutContainer">\${container.id}</div>`;
+    const code = transpile(src, {
+      filename: 'test.html',
+      modelTransforms: {
+        LayoutContainer: {
+          id: () => `model._internalId ?? ''`,
+        },
+      },
+    });
+    expect(code).toContain("id: container._internalId ?? ''");
+  });
+
   it('supports direct-code expression callbacks with destructured model', () => {
     const src = `<div data-sly-use.colContainer="com.example.ColContainer">\${colContainer.id}</div>`;
     const code = transpile(src, {
@@ -3172,6 +3185,35 @@ describe('transpile — modelTransforms with function values', () => {
     });
     expect(code).toContain("const count = colContainer?.columns || 1;");
     expect(code).toContain("path: 'par' + index");
+  });
+
+  it('supports direct-code callbacks without parameters', () => {
+    const src = `<div data-sly-use.page="com.day.cq.wcm.foundation.TemplatedContainer">\${page.structureResources[0].path}</div>`;
+    const code = transpile(src, {
+      filename: 'test.html',
+      modelTransforms: {
+        TemplatedContainer: {
+          structureResources: () => [{ path: 'content' }],
+        },
+      },
+    });
+    const mod: any = {};
+    new Function('module', code)(mod);
+    const fn = Object.values(mod.exports)[0] as Function;
+    expect(fn({ page: {} })).toContain('content');
+  });
+
+  it('supports zero-argument direct string literals', () => {
+    const src = `<div data-sly-use.container="com.example.LayoutContainer">\${container.layout}</div>`;
+    const code = transpile(src, {
+      filename: 'test.html',
+      modelTransforms: {
+        LayoutContainer: {
+          layout: () => 'RESPONSIVE_GRID',
+        },
+      },
+    });
+    expect(code).toContain("layout: 'RESPONSIVE_GRID'");
   });
 });
 

@@ -1,6 +1,6 @@
 {
   "name": "htl-to-js",
-  "version": "1.1.0",
+  "version": "1.1.2",
   "description": "Webpack loader and CLI that transpiles AEM HTL (Sightly) templates into JavaScript template string functions.",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",

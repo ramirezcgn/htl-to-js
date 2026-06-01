@@ -3103,7 +3103,7 @@ describe('transpile — modelTransforms with function values', () => {
       filename: 'test.html',
       modelTransforms: {
         MyModel: {
-          layout: (varName) => `'RESPONSIVE_GRID'`,
+          layout: (varName: string) => `'RESPONSIVE_GRID'`,
         },
       },
     });
@@ -3116,7 +3116,7 @@ describe('transpile — modelTransforms with function values', () => {
       filename: 'test.html',
       modelTransforms: {
         LayoutContainer: {
-          id: (varName) => `${varName}?._id ?? 'default'`,
+          id: (varName: string) => `${varName}?._id ?? 'default'`,
         },
       },
     });
@@ -3140,6 +3140,38 @@ describe('transpile — modelTransforms with function values', () => {
     expect(fn({ model: {} })).toContain('class="dark"');
     // runtime override wins
     expect(fn({ model: { theme: 'light' } })).toContain('class="light"');
+  });
+
+  it('supports direct-code expression callbacks with destructured model', () => {
+    const src = `<div data-sly-use.colContainer="com.example.ColContainer">\${colContainer.id}</div>`;
+    const code = transpile(src, {
+      filename: 'test.html',
+      modelTransforms: {
+        ColContainer: {
+          id: ({ model }: { model: any }) => model?._internalId ?? 'fallback',
+        },
+      },
+    });
+    expect(code).toContain("id: colContainer?._internalId ?? 'fallback'");
+  });
+
+  it('supports direct-code block callbacks with destructured model', () => {
+    const src = `<div data-sly-use.colContainer="com.example.ColContainer">\${colContainer.columns[0].path}</div>`;
+    const code = transpile(src, {
+      filename: 'test.html',
+      modelTransforms: {
+        ColContainer: {
+          columns: ({ model }: { model: any }) => {
+            const count = model?.columns || 1;
+            return Array.from({ length: count }, (_, index) => ({
+              path: 'par' + index,
+            }));
+          },
+        },
+      },
+    });
+    expect(code).toContain("const count = colContainer?.columns || 1;");
+    expect(code).toContain("path: 'par' + index");
   });
 });
 

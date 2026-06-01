@@ -40,7 +40,7 @@ interface TranspileOptions {
   omitAttrs?: RegExp[];
   i18nDict?: Record<string, string>;
   i18nFallbackDicts?: Record<string, string>[];
-  modelTransforms?: Record<string, Record<string, string | ((varName: string) => string)>>;
+  modelTransforms?: Record<string, Record<string, ModelTransformValue>>;
   wrapperClass?: string | boolean;
   resourceWrappers?: Record<
     string,
@@ -63,6 +63,14 @@ interface TemplateInfo {
   params: string[];
   node: any;
 }
+
+type LegacyModelTransformFn = (varName: string) => string;
+type DirectModelTransformFn = (bindings: {
+  model: unknown;
+  _includes: unknown;
+  varName: string;
+}) => unknown;
+type ModelTransformValue = string | LegacyModelTransformFn | DirectModelTransformFn;
 
 /**
  * Transpiles an HTL source string into a JavaScript module that exports
@@ -226,7 +234,7 @@ function transpileInlineHtl(
   htlSource: string,
   omitAttrs: RegExp[],
   sourceDir: string,
-  modelTransforms: Record<string, Record<string, string | ((varName: string) => string)>>,
+  modelTransforms: Record<string, Record<string, ModelTransformValue>>,
   fileOverrides: Record<string, string>,
 ): { declarations: string; expression: string } {
   const expandedSource = htlSource.replaceAll(
@@ -309,7 +317,7 @@ function transpileNamedTemplates(
   templates: TemplateInfo[],
   omitAttrs: RegExp[],
   sourceDir: string,
-  modelTransforms: Record<string, Record<string, string | ((varName: string) => string)>> = {},
+  modelTransforms: Record<string, Record<string, ModelTransformValue>> = {},
   fileOverrides: Record<string, string> = {},
   i18nDefault?: string,
   format: 'cjs' | 'esm' = 'cjs',
@@ -404,7 +412,7 @@ function transpileSingleTemplate(
   filename: string,
   omitAttrs: RegExp[],
   sourceDir: string,
-  modelTransforms: Record<string, Record<string, string | ((varName: string) => string)>> = {},
+  modelTransforms: Record<string, Record<string, ModelTransformValue>> = {},
   wrapperClass?: string | boolean,
   fileOverrides: Record<string, string> = {},
   i18nDefault?: string,
@@ -527,15 +535,15 @@ function buildFunctionBody(
  */
 function buildModelTransformDecls(
   uses: Record<string, string>,
-  modelTransforms: Record<string, Record<string, string | ((varName: string) => string)>>
+  modelTransforms: Record<string, Record<string, ModelTransformValue>>
 ): string {
   if (!Object.keys(modelTransforms).length) return '';
   const lines: string[] = [];
   for (const [varName, useVal] of Object.entries(uses)) {
     for (const [classKey, props] of Object.entries(modelTransforms)) {
       if (String(useVal).includes(classKey)) {
-        const resolve = (v: string | ((n: string) => string)) =>
-          typeof v === 'function' ? v(varName) : String(v).replaceAll(/\bmodel\b/g, varName);
+        const resolve = (v: ModelTransformValue) =>
+          resolveModelTransformValue(v, varName);
         const modelEntries = Object.entries(props).filter(
           ([k]) => !k.startsWith('_')
         );
@@ -556,6 +564,123 @@ function buildModelTransformDecls(
     }
   }
   return lines.join('\n');
+}
+
+function resolveModelTransformValue(
+  value: ModelTransformValue,
+  varName: string,
+): string {
+  if (typeof value !== 'function') {
+    return String(value).replaceAll(/\bmodel\b/g, varName);
+  }
+
+  const directExpr = serializeDirectModelTransform(value, varName);
+  if (directExpr != null) return directExpr;
+
+  return (value as LegacyModelTransformFn)(varName);
+}
+
+function serializeDirectModelTransform(
+  value: Function,
+  varName: string,
+): string | null {
+  const parsed = parseDirectTransformSource(value);
+  if (!parsed) return null;
+
+  const bindings = parseDirectTransformBindings(parsed.params, varName);
+  if (!bindings) return null;
+
+  const expression = parsed.isBlock
+    ? `(() => {\n${parsed.body}\n})()`
+    : parsed.body;
+
+  return replaceDirectTransformBindings(expression, bindings);
+}
+
+function parseDirectTransformSource(
+  value: Function,
+): { params: string; body: string; isBlock: boolean } | null {
+  const source = Function.prototype.toString.call(value).trim();
+
+  const arrowMatch = source.match(/^\(\s*\{([\s\S]*?)\}\s*\)\s*=>\s*([\s\S]*)$/);
+  if (arrowMatch) {
+    const rawBody = arrowMatch[2].trim();
+    if (rawBody.startsWith('{') && rawBody.endsWith('}')) {
+      return {
+        params: arrowMatch[1],
+        body: rawBody.slice(1, -1).trim(),
+        isBlock: true,
+      };
+    }
+    return {
+      params: arrowMatch[1],
+      body: rawBody,
+      isBlock: false,
+    };
+  }
+
+  const fnMatch = source.match(/^function\b[^()]*(?:\([^)]*\))?\s*\(\s*\{([\s\S]*?)\}\s*\)\s*\{([\s\S]*)\}$/);
+  if (fnMatch) {
+    return {
+      params: fnMatch[1],
+      body: fnMatch[2].trim(),
+      isBlock: true,
+    };
+  }
+
+  return null;
+}
+
+function parseDirectTransformBindings(
+  paramsSource: string,
+  varName: string,
+): Map<string, string> | null {
+  const bindings = new Map<string, string>();
+  const entries = paramsSource
+    .split(',')
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+
+  for (const entry of entries) {
+    const aliasMatch = entry.match(/^(model|_includes|varName)\s*:\s*([A-Za-z_$][\w$]*)$/);
+    if (aliasMatch) {
+      bindings.set(aliasMatch[2], resolveDirectBindingValue(aliasMatch[1], varName));
+      continue;
+    }
+
+    if (/^(model|_includes|varName)$/.test(entry)) {
+      bindings.set(entry, resolveDirectBindingValue(entry, varName));
+      continue;
+    }
+
+    return null;
+  }
+
+  return bindings.size ? bindings : null;
+}
+
+function resolveDirectBindingValue(bindingName: string, varName: string): string {
+  if (bindingName === 'model') return varName;
+  if (bindingName === '_includes') return '_includes';
+  return JSON.stringify(varName);
+}
+
+function replaceDirectTransformBindings(
+  expression: string,
+  bindings: Map<string, string>,
+): string {
+  let output = expression;
+  for (const [localName, replacement] of bindings) {
+    output = output.replaceAll(
+      new RegExp(`\\b${escapeRegExp(localName)}\\b`, 'g'),
+      replacement,
+    );
+  }
+  return output;
+}
+
+function escapeRegExp(value: string): string {
+  return value.replaceAll(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
 function extractOriginalTemplateNames(source: string): Record<string, string> {

@@ -725,6 +725,30 @@ const modelTransforms = {
 
 The function receives the actual variable name (e.g. `container`) and must return a JS expression string. This is useful when the transform expression needs to reference the variable precisely.
 
+**Direct code callbacks** — `modelTransforms` also accepts functions with destructured bindings such as `({ model }) => ...` or `({ model, _includes, varName }) => ...`. In this mode the callback body is serialized into the generated module, and `model` is replaced with the actual use-binding variable:
+
+```js
+const modelTransforms = {
+  ColContainer: {
+    id: ({ model }) => model?._internalId ?? '',
+    columns: ({ model }) => {
+      const count = model?.columns || 1;
+      return Array.from({ length: count }, (_, index) => ({
+        path: 'par_' + index,
+      }));
+    },
+  },
+};
+```
+
+The supported destructured bindings are:
+
+- `model` — replaced with the actual model variable (for example `container`)
+- `_includes` — replaced with the generated `_includes` parameter
+- `varName` — replaced with the model variable name as a string literal
+
+If your build tooling rewrites loader config functions before `htl-to-js` sees them, use the string-based form instead. The string form remains the most portable option.
+
 **Special key `_includes`** — computes `_includes` slot entries from model data. Unlike regular keys (which are merged into the model object), `_includes` is assigned to the `_includes` parameter directly. Runtime `_includes` take precedence over computed ones.
 
 ```js

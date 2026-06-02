@@ -2,6 +2,10 @@ import { parseDirectives } from './directives';
 import type { Directives, SetDecl } from './directives';
 import { convertExpr, convertAttrValue, convertTextContent, extractExprs, extractContext } from './expr';
 
+const URI_ATTRS = new Set([
+  'action', 'cite', 'data', 'formaction', 'href', 'manifest', 'poster', 'src',
+]);
+
 const VOID_ELEMENTS = new Set([
   'area',
   'base',
@@ -23,6 +27,7 @@ export interface WalkerContext {
   uses: Record<string, string>;
   useDefaults: Record<string, string>;
   fileUse: Record<string, string>;
+  dynamicFileUse: Record<string, string>;
   jsFileUse: Record<string, string>;
   sets: SetDecl[];
   omitAttrs: RegExp[];
@@ -42,6 +47,7 @@ export function createContext(
     uses: {},
     useDefaults: {},
     fileUse: {},
+    dynamicFileUse: {},
     jsFileUse: {},
     sets: [],
     omitAttrs,
@@ -72,6 +78,12 @@ function addRootRefs(expr: string | null | undefined, refs: Set<string>): void {
       continue;
     refs.add(m[1]);
   }
+}
+
+function formatCallParams(params: Record<string, string> | undefined): string {
+  const entries = Object.entries(params ?? {});
+  if (!entries.length) return 'undefined';
+  return '{ ' + entries.map(([key, value]) => key + ': ' + value).join(', ') + ' }';
 }
 
 export function walkNodes(nodes: any[], ctx: WalkerContext): string {
@@ -106,6 +118,7 @@ function processElement(node: any, ctx: WalkerContext): string {
   Object.assign(ctx.uses, dir.use);
   Object.assign(ctx.useDefaults, dir.useDefaults);
   Object.assign(ctx.fileUse, dir.fileUse);
+  Object.assign(ctx.dynamicFileUse, dir.dynamicFileUse || {});
   Object.assign(ctx.jsFileUse, dir.jsFileUse);
 
   for (const [varName, filePath] of Object.entries(dir.fileUse)) {
@@ -133,24 +146,38 @@ function processElement(node: any, ctx: WalkerContext): string {
   if (dir.test) addRootRefs(dir.test, ctx.refs);
   if (dir.text) addRootRefs(dir.text, ctx.refs);
   if (dir.resource) {
-    const definedOnSameElement = dir.sets.some((s) => s.name === dir.resource);
-    if (/^\w+$/.test(dir.resource) && !ctx.definedVars.has(dir.resource) && !ctx.uses[dir.resource] && !definedOnSameElement) {
-      dir.resource = `'${dir.resource}'`;
+    const resource = dir.resource;
+    const definedOnSameElement = dir.sets.some((s) => s.name === resource.path);
+    if (/^\w+$/.test(resource.path) && !ctx.definedVars.has(resource.path) && !ctx.uses[resource.path] && !definedOnSameElement) {
+      resource.path = `'${resource.path}'`;
     }
-    addRootRefs(dir.resource, ctx.refs);
+    addRootRefs(resource.path, ctx.refs);
+    for (const value of Object.values(resource.params)) addRootRefs(value, ctx.refs);
   }
   if (dir.element) addRootRefs(dir.element, ctx.refs);
   if (dir.unwrap != null) addRootRefs(dir.unwrap, ctx.refs);
   if (dir.repeat) addRootRefs(dir.repeat.listExpr, ctx.refs);
   if (dir.call)
     Object.values(dir.call.params).forEach((v) => addRootRefs(v, ctx.refs));
+  if (dir.include) {
+    addRootRefs(dir.include.path, ctx.refs);
+    for (const value of Object.values(dir.include.params)) addRootRefs(value, ctx.refs);
+  }
   for (const s of dir.sets) addRootRefs(s.expr, ctx.refs);
   if (dir.dynamicAttrs)
     for (const a of dir.dynamicAttrs) addRootRefs(a.expr, ctx.refs);
   if (dir.spreadAttr) addRootRefs(dir.spreadAttr, ctx.refs);
+  for (const [attrKey, attrVal] of Object.entries(attrsMap)) {
+    if (!attrKey.startsWith('data-sly-')) {
+      for (const { expr } of extractExprs(String(attrVal))) {
+        addRootRefs(expr, ctx.refs);
+      }
+    }
+  }
 
   for (const name of Object.keys(dir.use)) ctx.definedVars.add(name);
   for (const name of Object.keys(dir.fileUse)) ctx.definedVars.add(name);
+  for (const name of Object.keys(dir.dynamicFileUse || {})) ctx.definedVars.add(name);
   for (const s of dir.sets) ctx.definedVars.add(s.name);
   if (dir.repeat) {
     ctx.definedVars.add(dir.repeat.varName);
@@ -163,6 +190,7 @@ function processElement(node: any, ctx: WalkerContext): string {
         uses: ctx.uses,
         useDefaults: ctx.useDefaults,
         fileUse: ctx.fileUse,
+        dynamicFileUse: ctx.dynamicFileUse,
         jsFileUse: ctx.jsFileUse,
         sets: [],
         omitAttrs: ctx.omitAttrs,
@@ -187,6 +215,7 @@ function processElement(node: any, ctx: WalkerContext): string {
     let callContent: string | undefined;
     let callObjName: string | undefined;
     const dotIdx = fn.indexOf('.');
+    const isStaticCallTarget = /^\w+(?:\.\w+)*$/.test(fn);
     if (dotIdx === -1) {
       const localFn = ctx.localTemplates[fn];
       if (localFn) {
@@ -203,14 +232,29 @@ function processElement(node: any, ctx: WalkerContext): string {
         const extraParams = paramsStr ? `${paramsStr}, _includes` : '_includes';
         callContent = `\${require('${filePath}').${jsFnName}?.({ ${extraParams} }) ?? ''}`;
       } else {
-        const localFn = ctx.localTemplates[methodName];
-        if (localFn) {
-          const extraParams = paramsStr
-            ? `${paramsStr}, _includes`
-            : '_includes';
-          callContent = `\${${localFn}?.({ ${extraParams} }) ?? ''}`;
+        const dynamicFilePath =
+          dir.dynamicFileUse?.[callObjName] || ctx.dynamicFileUse[callObjName];
+        if (dynamicFilePath && !ctx.uses[callObjName]) {
+          const jsFnName =
+            'create' + methodName.charAt(0).toUpperCase() + methodName.slice(1);
+          const extraParams = paramsStr ? `${paramsStr}, _includes` : '_includes';
+          const requirePath = `(() => { const _usePath = String(${dynamicFilePath} ?? ''); return _usePath.startsWith('/') || _usePath.startsWith('.') ? _usePath : './' + _usePath; })()`;
+          callContent = `\${require(${requirePath}).${jsFnName}?.({ ${extraParams} }) ?? ''}`;
+        } else {
+          const localFn = ctx.localTemplates[methodName];
+          if (localFn) {
+            const extraParams = paramsStr
+              ? `${paramsStr}, _includes`
+              : '_includes';
+            callContent = `\${${localFn}?.({ ${extraParams} }) ?? ''}`;
+          }
         }
       }
+    }
+
+    if (!callContent && !isStaticCallTarget) {
+      const extraParams = paramsStr ? `${paramsStr}, _includes` : '_includes';
+      callContent = `\${${convertExpr(fn)}?.({ ${extraParams} }) ?? ''}`;
     }
 
     if (!callContent) {
@@ -228,23 +272,23 @@ function processElement(node: any, ctx: WalkerContext): string {
   }
 
   if (dir.include) {
-    const raw = dir.include;
-    let key: string;
-    if (raw.startsWith('${')) {
-      const expr = convertExpr(raw);
-      key = `[${expr}]`;
-    } else {
-      const literalPath = raw.replace(/^['"](.+)['"]$/, '$1');
-      key = `['${literalPath}']`;
-    }
-    const includeExpr = `_incSlot(_includes, ${key.slice(1, -1)})`;
+    const includeParams = formatCallParams(dir.include.params);
+    const includeExpr = includeParams === 'undefined'
+      ? `_incSlot(_includes, ${dir.include.path})`
+      : `_incSlot(_includes, ${dir.include.path}, ${includeParams})`;
     return applyTest(dir.test, `\${${includeExpr}}`);
   }
 
   if (node.name === 'sly' && !dir.repeat) {
     const rtArg = dir.resourceType ? "'" + dir.resourceType + "'" : 'undefined';
     const children = dir.resource
-      ? `\${_wrapResource(${dir.resource}, _incSlot(_includes, ${dir.resource}), Object.assign({}, _staticResourceWrappers ?? {}, _resourceWrappers), ${rtArg})}`
+      ? (() => {
+          const resourceParams = formatCallParams(dir.resource.params);
+          const resourceSlot = resourceParams === 'undefined'
+            ? `_incSlot(_includes, ${dir.resource.path})`
+            : `_incSlot(_includes, ${dir.resource.path}, ${resourceParams})`;
+          return `\${_wrapResource(${dir.resource.path}, ${resourceSlot}, Object.assign({}, _staticResourceWrappers ?? {}, _resourceWrappers), ${rtArg})}`;
+        })()
       : walkNodes(node.children, localCtx);
     return applyTest(dir.test, children);
   }
@@ -270,9 +314,13 @@ function processElement(node: any, ctx: WalkerContext): string {
   }
 
   if (dir.repeat) {
-    const { varName, listExpr, listMode } = dir.repeat;
+    const { varName, listExpr, listMode, beginExpr, endExpr, stepExpr } = dir.repeat;
     const listVar = `${varName}List`;
-    const listDecl = `const ${listVar} = { index: _i, count: _i + 1, first: _i === 0, last: _i === _arr.length - 1, odd: (_i + 1) % 2 !== 0, even: (_i + 1) % 2 === 0 };`;
+    const listDecl = `const ${listVar} = { index: _i, count: _i + 1, first: _i === 0, middle: _i > 0 && _i < _arr.length - 1, last: _i === _arr.length - 1, odd: (_i + 1) % 2 !== 0, even: (_i + 1) % 2 === 0 };`;
+    const baseArr = `(Array.isArray(${listExpr}) ? (${listExpr}) : [])`;
+    const iterArr = (beginExpr ?? endExpr ?? stepExpr)
+      ? `_htlSlice(${baseArr}, ${beginExpr ?? 'undefined'}, ${endExpr ?? 'undefined'}, ${stepExpr ?? 'undefined'})`
+      : baseArr;
     const testVarName = dir.test;
     const hoisted: typeof localCtx.sets = [];
     const inner: typeof localCtx.sets = [];
@@ -299,15 +347,15 @@ function processElement(node: any, ctx: WalkerContext): string {
       const childBody = setLines
         ? `${listDecl} ${setLines} return \`${innerContent}\`;`
         : `${listDecl} return \`${innerContent}\`;`;
-      const childLoop = `\${((${listExpr}) || []).map((${varName}, _i, _arr) => { if (${varName} == null) return ''; ${childBody} }).join('')}`;
+      const mapExpr = `${iterArr}.map((${varName}, _i, _arr) => { if (${varName} == null) return ''; ${childBody} }).join('')`;
       result = VOID_ELEMENTS.has(node.name)
         ? `<${tagExpr}${attrsStr}>`
-        : `<${tagExpr}${attrsStr}>${childLoop}</${tagExpr}>`;
+        : `\${((_la) => _la ? \`<${tagExpr}${attrsStr}>\${_la}</${tagExpr}>\` : '')(${mapExpr})}`;
     } else {
       const body = setLines
         ? `${listDecl} ${setLines} return \`${result}\`;`
         : `${listDecl} return \`${result}\`;`;
-      result = `\${((${listExpr}) || []).map((${varName}, _i, _arr) => { if (${varName} == null) return ''; ${body} }).join('')}`;
+      result = `\${${iterArr}.map((${varName}, _i, _arr) => { if (${varName} == null) return ''; ${body} }).join('')}`;
     }
 
     if (hoistLines && dir.test) {
@@ -336,7 +384,12 @@ function buildInnerContent(
 ): string {
   if (dir.resource) {
     const rtArg = dir.resourceType ? "'" + dir.resourceType + "'" : 'undefined';
-    return `\${_wrapResource(${dir.resource}, _incSlot(_includes, ${dir.resource}), Object.assign({}, _staticResourceWrappers ?? {}, _resourceWrappers), ${rtArg})}`;
+    const resource = dir.resource;
+    const resourceParams = formatCallParams(resource.params);
+    const resourceSlot = resourceParams === 'undefined'
+      ? `_incSlot(_includes, ${resource.path})`
+      : `_incSlot(_includes, ${resource.path}, ${resourceParams})`;
+    return `\${_wrapResource(${resource.path}, ${resourceSlot}, Object.assign({}, _staticResourceWrappers ?? {}, _resourceWrappers), ${rtArg})}`;
   }
   if (dir.text) {
     const isRaw = dir.textContext === 'html' || dir.textContext === 'unsafe';
@@ -361,8 +414,11 @@ function buildAttrs(
         if (ctx === 'unsafe') {
           return ` ${key}="\${${converted} ?? ''}"`;
         }
-        if (ctx === 'uri') {
+        if (ctx === 'uri' || (ctx == null && URI_ATTRS.has(key))) {
           return `\${_htlDynAttr('${key}', _htlUri(${converted}))}`;
+        }
+        if (ctx === 'number') {
+          return `\${_htlDynAttr('${key}', _htlNum(${converted}))}`;
         }
         return `\${_htlDynAttr('${key}', ${converted})}`;
       }

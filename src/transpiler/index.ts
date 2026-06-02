@@ -3,6 +3,7 @@ import { createContext, walkNodes } from './walker';
 import type { WalkerContext } from './walker';
 import type { SetDecl } from './directives';
 import { parseDirectives } from './directives';
+import fs from 'node:fs';
 import path from 'node:path';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -108,17 +109,14 @@ export function transpile(
   const sourceDir = path.dirname(path.resolve(filename));
 
   const serializedFileOverrides: Record<string, string> = {};
-  const inlinedDeclarations: string[] = [];
   for (const [key, val] of Object.entries(fileOverrides)) {
     if (typeof val === 'string') {
       serializedFileOverrides[key] = val;
     } else if (val.htl) {
-      const { declarations, expression } = transpileInlineHtl(
+      serializedFileOverrides[key] = transpileInlineHtl(
         val.htl, omitAttrs, sourceDir, modelTransforms,
         serializedFileOverrides,
       );
-      inlinedDeclarations.push(declarations);
-      serializedFileOverrides[key] = expression;
     } else if (val.expression) {
       serializedFileOverrides[key] = val.expression;
     }
@@ -157,15 +155,19 @@ export function transpile(
 
   const banner = `// AUTO-GENERATED from ${path.basename(filename)} — DO NOT EDIT\n\n`;
   const helpers = [
-    `const _htlAttr = (v) => v == null ? '' : (typeof v === 'object' ? JSON.stringify(v).replace(/"/g, '&quot;') : String(v).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'));`,
+    `const _htlAttr = (v) => v == null ? '' : (Array.isArray(v) ? v.map(x => x == null ? '' : String(x).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')).join(',') : typeof v === 'object' ? JSON.stringify(v).replace(/"/g, '&quot;') : String(v).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'));`,
     `const _htlText = (v) => v == null ? '' : String(v).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');`,
     `const _htlUri = (v) => { if (v == null) return ''; try { return encodeURI(String(v)).replace(/"/g, '&quot;'); } catch { return ''; } };`,
+    `const _htlIn = (l, r) => { if (typeof r === 'string') return r.includes(String(l)); if (Array.isArray(r)) return r.includes(l); return r != null && (l in r); };`,
+    `const _htlNum = (v) => { if (v == null || typeof v === 'boolean' || Array.isArray(v)) return null; const n = Number(v); return isNaN(n) ? null : String(n); };`,
+    String.raw`const _htlJoinPaths = (base, prepend, append) => { let p = String(base ?? ''); if (prepend) { const s = String(prepend); p = s.replace(/\/$/, '') + '/' + p.replace(/^\//, ''); } if (append) { const s = String(append); p = p.replace(/\/$/, '') + '/' + s.replace(/^\//, ''); } return p; };`,
+    `const _htlSlice = (arr, begin, end, step) => { const a = arr || []; const b = begin != null ? Number(begin) : 0; const e = end != null ? Number(end) : a.length - 1; const s = step != null ? Math.max(1, Number(step)) : 1; return a.filter((_, i) => i >= b && i <= e && (i - b) % s === 0); };`,
     `const _htlI18nPlural = (key, count, dict) => { if (key == null) return ''; const n = Number(count); const tmpl = (n === 1 ? dict?.[key] : (dict?.[key + '_plural'] ?? dict?.[key])) ?? String(key); return String(tmpl).replace('{0}', String(n)); };`,
     `const _htlDynAttr = (name, val) => { if (val == null || val === false) return ''; if (val === true) return ' ' + name; return ' ' + name + '="' + _htlAttr(val) + '"'; };`,
     `const _htlSpreadAttrs = (obj) => { if (!obj || typeof obj !== 'object') return ''; return Object.entries(obj).map(([k, v]) => _htlDynAttr(k, v)).join(''); };`,
     `const _inc = (v) => typeof v === 'function' ? v() : String(v ?? '');`,
     `const _arrJoin = (v) => Array.isArray(v) ? v.map(_arrJoin).join('') : (v == null ? '' : String(v));`,
-    String.raw`const _incSlot = (inc, key) => { if (!inc) return ''; const v = inc[key]; if (v != null) return _arrJoin(typeof v === 'function' ? v() : v); if (typeof key === 'string') { const m = key.match(/^(.+)_(\d+)$/); if (m) { const b = inc[m[1]]; if (b != null) { const a = typeof b === 'function' ? b() : b; if (Array.isArray(a)) return _arrJoin(a[+m[2]]); } } } return ''; };`,
+    String.raw`const _incSlot = (inc, key, params) => { if (!inc) return ''; const v = inc[key]; if (v != null) return _arrJoin(typeof v === 'function' ? v(params) : v); if (typeof key === 'string') { const m = key.match(/^(.+)_(\d+)$/); if (m) { const b = inc[m[1]]; if (b != null) { const a = typeof b === 'function' ? b(params) : b; if (Array.isArray(a)) return _arrJoin(a[+m[2]]); } } } return ''; };`,
     `const _wrapResource = (key, html, wrappers, resourceType) => {`,
     `  const cfg = wrappers?.[key] ?? (resourceType ? wrappers?.[resourceType] : undefined); if (!cfg) return html;`,
     `  if (typeof cfg === 'string') return '<div class="' + cfg + '">' + html + '</div>';`,
@@ -193,9 +195,6 @@ export function transpile(
   ].join('\n');
 
   const resourceWrapperDecl = `const _staticResourceWrappers = ${JSON.stringify(resourceWrappers ?? {})};\n`;
-  const inlinedCode = inlinedDeclarations.length
-    ? inlinedDeclarations.join('\n\n') + '\n\n'
-    : '';
   const finalBody = restoreVarCasing(body, restoreMap);
 
   // For ESM, hoist import declarations (emitted at the top of body) before helpers
@@ -213,7 +212,7 @@ export function transpile(
   }
 
   const slotsSet = new Set<string>();
-  for (const m of codeBody.matchAll(/_incSlot\(_includes,\s*'([^']+)'\)/g)) {
+  for (const m of codeBody.matchAll(/_incSlot\(_includes,\s*'([^']+)'/g)) {
     slotsSet.add(m[1]);
   }
   const slotsLine = slotsSet.size
@@ -222,7 +221,7 @@ export function transpile(
         : `\nconst __slots__ = ${JSON.stringify([...slotsSet])};\nObject.assign(module.exports, { __slots__ });\nfor (const _fn of Object.values(module.exports)) { if (typeof _fn === 'function') _fn.__slots__ = __slots__; }\n`)
     : '';
   return (
-    banner + esmImports + helpers + resourceWrapperDecl + inlinedCode + codeBody + slotsLine
+    banner + esmImports + helpers + resourceWrapperDecl + codeBody + slotsLine
   );
 }
 
@@ -236,7 +235,7 @@ function transpileInlineHtl(
   sourceDir: string,
   modelTransforms: Record<string, Record<string, ModelTransformValue>>,
   fileOverrides: Record<string, string>,
-): { declarations: string; expression: string } {
+): string {
   const expandedSource = htlSource.replaceAll(
     /<sly\b([^>]*?)\/>/g,
     '<sly$1></sly>'
@@ -258,6 +257,9 @@ function transpileInlineHtl(
     sourceDir,
     modelTransforms,
     fileOverrides,
+    undefined,
+    'cjs',
+    false,
   );
 
   const declarations = restoreVarCasing(
@@ -269,7 +271,7 @@ function transpileInlineHtl(
     .map(({ name }) => `${name}: ${toPascalFnName('create', name)}`)
     .join(', ');
 
-  return { declarations, expression: `{ ${mapping} }` };
+  return `(() => {\n${declarations}\nreturn { ${mapping} };\n})()`;
 }
 
 // ---------------------------------------------------------------------------
@@ -321,6 +323,7 @@ function transpileNamedTemplates(
   fileOverrides: Record<string, string> = {},
   i18nDefault?: string,
   format: 'cjs' | 'esm' = 'cjs',
+  includeDynamicUsePathDecl: boolean = true,
 ): string {
   const implicits = i18nDefault ? { ...AEM_IMPLICITS, _i18n: i18nDefault } : AEM_IMPLICITS;
   const localTemplates: Record<string, string> = Object.fromEntries(
@@ -340,6 +343,7 @@ function transpileNamedTemplates(
     Object.assign(ctx.uses, templateDir.use);
     Object.assign(ctx.useDefaults, templateDir.useDefaults || {});
     Object.assign(ctx.fileUse, templateDir.fileUse);
+    Object.assign(ctx.dynamicFileUse, templateDir.dynamicFileUse || {});
     const children = node.children || [];
     const body = walkNodes(children, ctx);
     const fnName = toPascalFnName('create', name);
@@ -360,6 +364,7 @@ function transpileNamedTemplates(
         allParams.push(implicitName);
       }
     }
+    addUseDefaultRefs(ctx.useDefaults, ctx.refs);
     const tempParams: ParamDecl[] = allParams.map((p) => ({
       name: p,
       default: '{}',
@@ -400,7 +405,8 @@ function transpileNamedTemplates(
     : `module.exports = { ${fnNames.join(', ')} };`;
   parts.push(exportLine);
   const prefix = esmImportLines.length ? esmImportLines.join('\n') + '\n' : '';
-  return prefix + parts.join('\n\n');
+  const dynamicUsePathDecl = includeDynamicUsePathDecl ? buildDynamicUsePathDecl(sourceDir) : '';
+  return prefix + dynamicUsePathDecl + parts.join('\n\n');
 }
 
 // ---------------------------------------------------------------------------
@@ -417,6 +423,7 @@ function transpileSingleTemplate(
   fileOverrides: Record<string, string> = {},
   i18nDefault?: string,
   format: 'cjs' | 'esm' = 'cjs',
+  includeDynamicUsePathDecl: boolean = true,
 ): string {
   const implicits = i18nDefault ? { ...AEM_IMPLICITS, _i18n: i18nDefault } : AEM_IMPLICITS;
   const ctx = createContext(
@@ -461,6 +468,7 @@ function transpileSingleTemplate(
     }
   }
 
+  addUseDefaultRefs(ctx.useDefaults, ctx.refs);
   addFreeVarParams(params, ctx);
 
   const transformDecls = buildModelTransformDecls(ctx.uses, modelTransforms);
@@ -469,29 +477,15 @@ function transpileSingleTemplate(
     ? `\nexport { ${fnName} };`
     : `\nmodule.exports = { ${fnName} };`;
   const prefix = esmImportLines.length ? esmImportLines.join('\n') + '\n' : '';
+  const dynamicUsePathDecl = includeDynamicUsePathDecl ? buildDynamicUsePathDecl(sourceDir) : '';
   return (
     prefix +
+    dynamicUsePathDecl +
     buildFunctionBody(fnName, paramStr, setDecls, body, transformDecls) +
     exportLine
   );
 }
 
-// ---------------------------------------------------------------------------
-// Code generation helpers
-// ---------------------------------------------------------------------------
-
-/**
- * Generates the default-parameter expression for a data-sly-use JS/JSON file.
- *
- * - JSON files: require() directly — they're always plain objects.
- * - JS files:  require() and call the export if it's a factory function,
- *   otherwise use it as-is. This mirrors AEM's JS Use-API pattern where
- *   a use-script may export either data or a factory (bindings) => data.
- *
- * The require() is inside an IIFE so it's evaluated lazily (only when the
- * caller does not pass an explicit value) but still benefits from Node's
- * module cache on subsequent calls.
- */
 function buildJsUseDefault(filePath: string): string {
   if (filePath.endsWith('.json')) {
     return `require('${filePath}')`;
@@ -527,6 +521,89 @@ function buildFunctionBody(
   if (setDecls) lines.push(setDecls);
   lines.push(`  return /* html */\`${body.trim()}\`;`, '};');
   return lines.join('\n');
+}
+
+function findNearestJcrRoot(startDir: string): string | null {
+  let dir = path.resolve(startDir);
+  for (let i = 0; i < 10; i++) {
+    const candidate = path.join(dir, 'jcr_root');
+    if (fs.existsSync(candidate)) return candidate;
+    const parent = path.dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
+  }
+  return null;
+}
+
+function collectFiles(rootDir: string, allowedExts: Set<string>): string[] {
+  const results: string[] = [];
+  const stack = [rootDir];
+  while (stack.length) {
+    const current = stack.pop() as string;
+    for (const entry of fs.readdirSync(current, { withFileTypes: true })) {
+      const fullPath = path.join(current, entry.name);
+      if (entry.isDirectory()) {
+        stack.push(fullPath);
+        continue;
+      }
+      if (allowedExts.has(path.extname(entry.name))) results.push(fullPath);
+    }
+  }
+  return results;
+}
+
+function buildDynamicUsePathMap(sourceDir: string): Record<string, string> {
+  const map: Record<string, string> = {};
+  const rootDir = findNearestJcrRoot(sourceDir) ?? path.resolve(sourceDir);
+  const sourceRoot = path.resolve(sourceDir);
+  const files = collectFiles(rootDir, new Set(['.html', '.js', '.json']));
+
+  for (const filePath of files) {
+    const relToSource = path.relative(sourceRoot, filePath).replaceAll('\\', '/');
+    const requirePath = relToSource.startsWith('.') ? relToSource : `./${relToSource}`;
+    map[requirePath] = requirePath;
+    if (requirePath.startsWith('./')) map[requirePath.slice(2)] = requirePath;
+
+    if (rootDir.endsWith('jcr_root')) {
+      const relToJcrRoot = path.relative(rootDir, filePath).replaceAll('\\', '/');
+      map[`/${relToJcrRoot}`] = requirePath;
+    }
+  }
+
+  return map;
+}
+
+function buildDynamicUsePathDecl(sourceDir: string): string {
+  if (!fs.existsSync(sourceDir)) return '';
+  const map = buildDynamicUsePathMap(sourceDir);
+  const keys = Object.keys(map);
+  if (!keys.length) return '';
+  return [
+    `const __resolveUsePathMap = ${JSON.stringify(map)};`,
+    `const __resolveUsePath = (value) => __resolveUsePathMap[String(value ?? '')] ?? String(value ?? '');`,
+    '',
+  ].join('\n');
+}
+
+function addUseDefaultRefs(
+  useDefaults: Record<string, string>,
+  refs: Set<string>,
+): void {
+  for (const expr of Object.values(useDefaults)) {
+    if (!expr) continue;
+    const stripped = String(expr)
+      .replaceAll(/'[^']*'/g, '')
+      .replaceAll(/"[^"]*"/g, '');
+    for (const m of stripped.matchAll(/(?<![?.])\b([a-zA-Z_$][a-zA-Z0-9_$]*)\b/g)) {
+      if (
+        stripped[m.index + m[0].length] === '$' &&
+        stripped[m.index + m[0].length + 1] === '{'
+      ) {
+        continue;
+      }
+      refs.add(m[1]);
+    }
+  }
 }
 
 /**
@@ -626,7 +703,7 @@ function parseDirectTransformSource(
 ): { params: string; body: string; isBlock: boolean } | null {
   const source = Function.prototype.toString.call(value).trim();
 
-  const emptyArrowMatch = source.match(/^\(\s*\)\s*=>\s*([\s\S]*)$/);
+  const emptyArrowMatch = /^\(\s*\)\s*=>\s*([\s\S]*)$/.exec(source);
   if (emptyArrowMatch) {
     const rawBody = emptyArrowMatch[1].trim();
     if (rawBody.startsWith('{') && rawBody.endsWith('}')) {
@@ -643,7 +720,7 @@ function parseDirectTransformSource(
     };
   }
 
-  const arrowMatch = source.match(/^\(\s*\{([\s\S]*?)\}\s*\)\s*=>\s*([\s\S]*)$/);
+  const arrowMatch = /^\(\s*\{([\s\S]*?)\}\s*\)\s*=>\s*([\s\S]*)$/.exec(source);
   if (arrowMatch) {
     const rawBody = arrowMatch[2].trim();
     if (rawBody.startsWith('{') && rawBody.endsWith('}')) {
@@ -660,7 +737,7 @@ function parseDirectTransformSource(
     };
   }
 
-  const fnMatch = source.match(/^function\b[^()]*(?:\([^)]*\))?\s*\(\s*\{([\s\S]*?)\}\s*\)\s*\{([\s\S]*)\}$/);
+  const fnMatch = /^function\b[^()]*(?:\([^)]*\))?\s*\(\s*\{([\s\S]*?)\}\s*\)\s*\{([\s\S]*)\}$/.exec(source);
   if (fnMatch) {
     return {
       params: fnMatch[1],
@@ -683,7 +760,7 @@ function parseDirectTransformBindings(
     .filter(Boolean);
 
   for (const entry of entries) {
-    const aliasMatch = entry.match(/^(model|_includes|varName)\s*:\s*([A-Za-z_$][\w$]*)$/);
+    const aliasMatch = /^(model|_includes|varName)\s*:\s*([A-Za-z_$][\w$]*)$/.exec(entry);
     if (aliasMatch) {
       bindings.set(aliasMatch[2], resolveDirectBindingValue(aliasMatch[1], varName));
       continue;
@@ -713,7 +790,7 @@ function replaceDirectTransformBindings(
   let output = expression;
   for (const [localName, replacement] of bindings) {
     output = output.replaceAll(
-      new RegExp(`\\b${escapeRegExp(localName)}\\b`, 'g'),
+      new RegExp(String.raw`\b${escapeRegExp(localName)}\b`, 'g'),
       replacement,
     );
   }
@@ -721,7 +798,7 @@ function replaceDirectTransformBindings(
 }
 
 function escapeRegExp(value: string): string {
-  return value.replaceAll(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return value.replaceAll(/[.*+?^${}()|[\]\\]/g, String.raw`\$&`);
 }
 
 function extractOriginalTemplateNames(source: string): Record<string, string> {

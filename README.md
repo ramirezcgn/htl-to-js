@@ -82,7 +82,7 @@ module.exports = {
 | `data-sly-include="./file.html"` | Delegates to `_includes` map |
 | `<sly>` | Transparent wrapper — only children are rendered |
 
-Both `data-sly-repeat` and `data-sly-list` support bare forms (without `.varName`) that default to `item` as the iteration variable. They also provide a `${itemList}` status object with `index`, `count`, `first`, `last`, `odd`, and `even` properties.
+Both `data-sly-repeat` and `data-sly-list` support bare forms (without `.varName`) that default to `item` as the iteration variable. They also provide a `${itemList}` status object with `index`, `count`, `first`, `last`, `middle`, `odd`, and `even` properties.
 
 ### Expression conversions
 
@@ -90,18 +90,36 @@ Both `data-sly-repeat` and `data-sly-list` support bare forms (without `.varName
 |---|---|
 | `${expr @ context='html'}` | `${expr}` (context options stripped) |
 | `${expr @ context='urlencode'}` | `${encodeURIComponent(expr ?? '')}` (URL-encodes the value) |
+| `${expr @ context='uri'}` on any attribute | `${_htlUri(expr ?? '')}` (URI-encodes the value) |
 | `${'string' @ i18n}` | `${_i18n?.['string'] ?? 'string'}` (dictionary lookup) |
 | `${list.size}` | `${list.length}` |
 | `${obj.jcr:title}` | `${obj?.['jcr:title']}` |
 | `${tags @ join=', '}` | `${(tags).join(', ')}` |
 | `${'pattern {0}/{1}' @ format=[a, b]}` | `${a + '/' + b}` |
-| `${key in obj}` | `${(obj && key in obj)}` (null-safe) |
+| `${key in obj}` | `${_htlIn(key, obj)}` — string containment, array `.includes()`, or object key check |
+
+### Auto-URI context
+
+When a dynamic expression appears in an attribute whose name is a URI attribute (`href`, `src`, `action`, `formaction`, `cite`, `data`, `manifest`, `poster`), the `uri` display context is applied automatically even without an explicit `@ context='uri'`:
+
+```html
+<!-- Both of these produce the same generated code -->
+<a href="${model.url}">link</a>
+<a href="${model.url @ context='uri'}">link</a>
+```
+
+Generated:
+
+```js
+href="${_htlDynAttr('href', _htlUri(model?.url ?? ''))}"
+```
 
 ### HTML escaping
 
 Attribute values are automatically escaped via the `_htlAttr` helper:
 - `&` → `&amp;`, `<` → `&lt;`, `>` → `&gt;`, `"` → `&quot;`
-- Object values are serialized with `JSON.stringify`
+- Array values are rendered as comma-joined strings: `['a','b']` → `a,b`
+- Plain object values are serialized with `JSON.stringify`
 - `null`/`undefined` produce an empty string
 
 Dynamic named attributes (`data-sly-attribute.name`) use `_htlDynAttr`:
@@ -223,12 +241,19 @@ module.exports = { createDefault };
 
 <!-- With @path fallback -->
 <sly data-sly-resource="${@ path=model.path}"></sly>
+
+<!-- appendPath / prependPath -->
+<sly data-sly-resource="${'my/path' @ appendPath='child'}"></sly>
+<sly data-sly-resource="${'my/path' @ prependPath='root'}"></sly>
 ```
 
 ```js
 // Generated
 ${_incSlot(_includes, 'header')}
 ${_incSlot(_includes, model?.path)}
+// appendPath/prependPath resolved at compile time when static
+${_incSlot(_includes, 'my/path/child')}
+${_incSlot(_includes, 'root/my/path')}
 ```
 
 Pass content via `_includes` in your story args. Strings, functions, and arrays are all accepted:
@@ -354,6 +379,13 @@ Includes another HTL file at runtime. The loader generates a slot in the `_inclu
 
 <!-- Dynamic path -->
 <sly data-sly-include="${model.templatePath}"></sly>
+
+<!-- Arguments are forwarded to the slot function -->
+<sly data-sly-include="./header.html @ wcmmode='edit'"></sly>
+
+<!-- appendPath / prependPath -->
+<sly data-sly-include="${'partials' @ appendPath='template.html'}"></sly>
+<sly data-sly-include="${'template.html' @ prependPath='partials'}"></sly>
 ```
 
 Generated:
@@ -364,6 +396,14 @@ ${_incSlot(_includes, './header.html')}
 
 // Dynamic path
 ${_incSlot(_includes, model?.templatePath)}
+
+// With args
+${_incSlot(_includes, './header.html', { wcmmode: 'edit' })}
+
+// appendPath/prependPath — resolved at compile time when both sides are string literals
+${_incSlot(_includes, 'partials/template.html')}
+// Dynamic operands fall back to a runtime helper
+${_incSlot(_includes, _htlJoinPaths('partials', undefined, model?.tpl))}
 ```
 
 In the story, pass either a function (component factory) or a plain string:
@@ -566,8 +606,32 @@ Both iterate over a list, but they differ in what gets repeated:
 
 Both support:
 - Null items are automatically skipped
-- A `${itemList}` status object with `index`, `count`, `first`, `last`, `odd`, `even`
+- A `${itemList}` status object with `index`, `count`, `first`, `last`, `middle`, `odd`, `even`
 - Combined `data-sly-test.var` + `data-sly-repeat` on the same element (test var is hoisted before the loop in a scoped IIFE)
+
+### Iteration control: `begin`, `end`, `step`
+
+Both directives accept `begin`, `end`, and `step` options to control which items are iterated:
+
+```html
+<!-- Skip the first item (begin is 0-based, inclusive) -->
+<ul data-sly-list.item="${items @ begin=1}"><li>${item}</li></ul>
+
+<!-- Stop after the second item (end is 0-based, inclusive) -->
+<ul data-sly-list.item="${items @ end=1}"><li>${item}</li></ul>
+
+<!-- Every other item -->
+<ul data-sly-list.item="${items @ step=2}"><li>${item}</li></ul>
+
+<!-- Combined -->
+<ul data-sly-list.item="${items @ begin=1, end=5, step=2}"><li>${item}</li></ul>
+```
+
+Options can also be dynamic expressions:
+
+```html
+<ul data-sly-list.item="${items @ begin=model.start, end=model.end}"><li>${item}</li></ul>
+```
 
 ---
 
@@ -628,6 +692,8 @@ const html = createColumn({ _wrapperClass: 'aem-GridColumn aem-GridColumn--defau
 ### `resourceWrappers`
 
 Object mapping resource keys **or `resourceType` paths** to CSS classes (or configuration objects) that wrap `data-sly-resource` slot output. Mimics the extra wrapper divs that AEM's responsive grid adds around its children.
+
+HTL options on `data-sly-resource` are forwarded to the slot function, so wrappers can react to values such as `wcmmode` or `resourceType`-driven paths.
 
 Keys are matched in this order:
 1. **Resource name** — the value in the expression (e.g. `'par'` from `data-sly-resource="${'par' @ ...}"`)
@@ -964,7 +1030,6 @@ Each `.d.ts` file re-exports the function signatures from the generated module s
 
 ## Known limitations
 
-- **`data-sly-include` with args** — passing parameters to included files (`@ wcmmode=wcmmode`) is not supported; only the path is used.
 - **`data-sly-call` across files** — the called template must be imported and passed explicitly via args; cross-file resolution at build time is not supported unless the file is declared via `data-sly-use`.
 - **Java expressions** in `data-sly-use` — the class path is ignored; the binding name becomes a function parameter.
 - **`data-sly-use` with `@` defaults** — the default values are extracted as destructuring defaults, but complex expressions are not supported.

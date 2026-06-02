@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { convertExpr, convertAttrValue, extractExprs, extractContext } from './expr';
+import { convertExpr, convertAttrValue, escapeLiteral, extractExprs, extractContext } from './expr';
 
 export interface SetDecl {
   name: string;
@@ -17,19 +17,20 @@ export interface Directives {
   use: Record<string, string>;
   useDefaults: Record<string, string>;
   fileUse: Record<string, string>;
+  dynamicFileUse: Record<string, string>;
   jsFileUse: Record<string, string>;
   test: string | null;
-  repeat: { varName: string; listExpr: string; listMode: boolean } | null;
+  repeat: { varName: string; listExpr: string; listMode: boolean; beginExpr: string | null; endExpr: string | null; stepExpr: string | null } | null;
   element: string | null;
   unwrap: string | null;
   sets: SetDecl[];
   text: string | null;
   textContext: string | null;
-  resource: string | null;
+  resource: { path: string; params: Record<string, string> } | null;
   resourceType: string | null;
   template: { name: string; params: string[] } | null;
   call: CallDescriptor | null;
-  include: string | null;
+  include: { path: string; params: Record<string, string> } | null;
   dynamicAttrs?: { name: string; expr: string }[];
   spreadAttr?: string | null;
   skip: Set<string>;
@@ -40,32 +41,13 @@ export interface Directives {
  * Walks up the directory tree (up to 4 levels) to find the file.
  * Returns a './relative/path.js' or './relative/path.json' string, or null.
  */
-function resolveJsUsePath(val: string, sourceDir: string): string | null {
-  if (!sourceDir) return null;
-  if (val.includes('${')) return null;
-  const isJs = val.endsWith('.js');
-  const isJson = val.endsWith('.json');
-  if (!isJs && !isJson) return null;
-
-  if (val.startsWith('/')) {
-    let dir = sourceDir;
-    for (let i = 0; i < 10; i++) {
-      const jcrRoot = path.join(dir, 'jcr_root');
-      if (fs.existsSync(jcrRoot)) {
-        const candidate = path.join(jcrRoot, val);
-        if (fs.existsSync(candidate)) {
-          const rel = path.relative(sourceDir, candidate).replaceAll('\\', '/');
-          return rel.startsWith('.') ? rel : `./${rel}`;
-        }
-        return null;
-      }
-      dir = path.dirname(dir);
-    }
-    return null;
-  }
-
+function resolveCandidatePath(
+  val: string,
+  sourceDir: string,
+  maxLevels: number,
+): string | null {
   let dir = sourceDir;
-  for (let i = 0; i < 4; i++) {
+  for (let i = 0; i < maxLevels; i++) {
     const candidate = path.join(dir, val);
     if (fs.existsSync(candidate)) {
       const rel = path.relative(sourceDir, candidate).replaceAll('\\', '/');
@@ -74,6 +56,37 @@ function resolveJsUsePath(val: string, sourceDir: string): string | null {
     dir = path.dirname(dir);
   }
   return null;
+}
+
+function resolveWithinJcrRoot(val: string, sourceDir: string): string | null {
+  let dir = sourceDir;
+  for (let i = 0; i < 10; i++) {
+    const jcrRoot = path.join(dir, 'jcr_root');
+    if (fs.existsSync(jcrRoot)) {
+      const candidate = path.join(jcrRoot, val);
+      if (fs.existsSync(candidate)) {
+        const rel = path.relative(sourceDir, candidate).replaceAll('\\', '/');
+        return rel.startsWith('.') ? rel : `./${rel}`;
+      }
+      return null;
+    }
+    dir = path.dirname(dir);
+  }
+  return null;
+}
+
+function resolveJsUsePath(val: string, sourceDir: string): string | null {
+  if (!sourceDir) return null;
+  if (val.includes('${')) return null;
+  const isJs = val.endsWith('.js');
+  const isJson = val.endsWith('.json');
+  if (!isJs && !isJson) return null;
+
+  if (val.startsWith('/')) {
+    return resolveWithinJcrRoot(val, sourceDir);
+  }
+
+  return resolveCandidatePath(val, sourceDir, 4);
 }
 
 /**
@@ -86,34 +99,12 @@ function resolveHtlPath(val: string, sourceDir: string): string | null {
   if (!val.endsWith('.html') || val.includes('${')) return null;
 
   if (val.startsWith('/')) {
-    let dir = sourceDir;
-    for (let i = 0; i < 10; i++) {
-      const jcrRoot = path.join(dir, 'jcr_root');
-      if (fs.existsSync(jcrRoot)) {
-        const candidate = path.join(jcrRoot, val);
-        if (fs.existsSync(candidate)) {
-          const rel = path.relative(sourceDir, candidate).replaceAll('\\', '/');
-          return rel.startsWith('.') ? rel : `./${rel}`;
-        }
-        return null;
-      }
-      dir = path.dirname(dir);
-    }
-    return null;
+    return resolveWithinJcrRoot(val, sourceDir);
   }
 
   if (val.split('/').length > 2) return null;
 
-  let dir = sourceDir;
-  for (let i = 0; i < 4; i++) {
-    const candidate = path.join(dir, val);
-    if (fs.existsSync(candidate)) {
-      const rel = path.relative(sourceDir, candidate).replaceAll('\\', '/');
-      return rel.startsWith('.') ? rel : `./${rel}`;
-    }
-    dir = path.dirname(dir);
-  }
-  return null;
+  return resolveCandidatePath(val, sourceDir, 4);
 }
 
 function parseUseDefault(val: string): string | null {
@@ -123,6 +114,116 @@ function parseUseDefault(val: string): string | null {
     (m) => m[1]
   );
   return vals.length ? `{ ${vals.join(', ')} }` : null;
+}
+
+function parseHtlOptions(value: string): Record<string, string> {
+  const options: Record<string, string> = {};
+  const valueRe = /(\w+)\s*=\s*((?:'(?:\\.|[^'\\])*'|"(?:\\.|[^"\\])*"|\$\{(?:[^{}]|\{[^{}]*\})*\}|\[[^\]]*\]|[^,}])+)/g;
+  for (const match of value.matchAll(valueRe)) {
+    options[match[1].trim()] = convertExpr(match[2].trim());
+  }
+  return options;
+}
+
+function parseHtlPathAndOptions(raw: string): { path: string; params: Record<string, string> } {
+  const trimmed = raw.trim();
+  const isWrappedExpr = trimmed.startsWith('${') && trimmed.endsWith('}');
+  const inner = isWrappedExpr ? trimmed.slice(2, -1).trim() : trimmed;
+  const atIdx = inner.indexOf('@');
+  const pathPart = (atIdx === -1 ? inner : inner.slice(0, atIdx)).trim();
+  const params = atIdx === -1 ? {} : parseHtlOptions(inner.slice(atIdx + 1));
+  const overridePath = params.path;
+  if (overridePath) delete params.path;
+  const literalPath = pathPart.replace(/^['"](.+)['"]$/, '$1').replaceAll("'", String.raw`\'`);
+  const pathExpr = overridePath ?? (isWrappedExpr || pathPart.startsWith('${')
+    ? convertExpr('${' + pathPart + '}')
+    : "'" + literalPath + "'");
+
+  const appendPath = params.appendPath as string | undefined;
+  const prependPath = params.prependPath as string | undefined;
+  delete params.appendPath;
+  delete params.prependPath;
+  const finalPath = composeHtlPath(pathExpr, prependPath, appendPath);
+  return { path: finalPath, params };
+}
+
+/**
+ * Composes an HTL path expression with optional prependPath/appendPath options.
+ * Uses compile-time string concatenation when both operands are static string
+ * literals; falls back to a runtime `_htlJoinPaths` call otherwise.
+ */
+function composeHtlPath(
+  pathExpr: string,
+  prependExpr: string | undefined,
+  appendExpr: string | undefined,
+): string {
+  if (!prependExpr && !appendExpr) return pathExpr;
+
+  const staticBase = /^'([^']*)'$/.exec(pathExpr)?.[1];
+  const staticPrepend = prependExpr ? /^'([^']*)'$/.exec(prependExpr)?.[1] : undefined;
+  const staticAppend = appendExpr ? /^'([^']*)'$/.exec(appendExpr)?.[1] : undefined;
+
+  if (staticBase !== undefined) {
+    let composed = staticBase;
+    if (prependExpr !== undefined) {
+      if (staticPrepend === undefined) {
+        return `_htlJoinPaths('${composed}', ${prependExpr}, ${appendExpr ?? 'undefined'})`;
+      }
+      composed =
+        staticPrepend.replace(/\/$/, '') + '/' + composed.replace(/^\//, '');
+    }
+    if (appendExpr !== undefined) {
+      if (staticAppend === undefined) {
+        return `_htlJoinPaths('${composed}', undefined, ${appendExpr})`; 
+      }
+      composed =
+        composed.replace(/\/$/, '') + '/' + staticAppend.replace(/^\//, '');
+    }
+    return `'${composed}'`;
+  }
+
+  return `_htlJoinPaths(${pathExpr}, ${prependExpr ?? 'undefined'}, ${appendExpr ?? 'undefined'})`;
+}
+
+function unwrapPureStringExpression(val: string): string | null {
+  const match = /^\$\{\s*(['"])([\s\S]*)\1\s*\}$/.exec(val.trim());
+  return match ? match[2] : null;
+}
+
+function convertInterpolatedString(value: string): string {
+  const parts: string[] = [];
+  let last = 0;
+  for (const { index, expr, end } of extractExprs(value)) {
+    if (index > last) parts.push(escapeLiteral(value.slice(last, index)));
+    parts.push(`\${${convertExpr(expr)}}`);
+    last = end;
+  }
+  if (last < value.length) parts.push(escapeLiteral(value.slice(last)));
+  return '`' + parts.join('') + '`';
+}
+
+function buildDynamicJsUseDefault(pathExpr: string): string {
+  return `(() => { const _m = require(__resolveUsePath(${pathExpr})); return typeof _m === 'function' ? _m({}) : _m; })()`;
+}
+
+/**
+ * Extracts begin / end / step iteration-control options from a data-sly-list or
+ * data-sly-repeat attribute value. Returns null for each option not present.
+ */
+function parseRepeatIterationOptions(
+  raw: string,
+): { beginExpr: string | null; endExpr: string | null; stepExpr: string | null } {
+  const trimmed = raw.trim();
+  const inner = trimmed.startsWith('${') && trimmed.endsWith('}')
+    ? trimmed.slice(2, -1).trim() : trimmed;
+  const atIdx = inner.indexOf('@');
+  if (atIdx === -1) return { beginExpr: null, endExpr: null, stepExpr: null };
+  const opts = parseHtlOptions(inner.slice(atIdx + 1));
+  return {
+    beginExpr: opts.begin ?? null,
+    endExpr: opts.end ?? null,
+    stepExpr: opts.step ?? null,
+  };
 }
 
 /**
@@ -137,6 +238,7 @@ export function parseDirectives(
     use: {},
     useDefaults: {},
     fileUse: {},
+    dynamicFileUse: {},
     jsFileUse: {},
     test: null,
     repeat: null,
@@ -158,12 +260,19 @@ export function parseDirectives(
     if (useMatch) {
       const name = useMatch[1];
       const trimmed = val.trim();
-      const requirePath = sourceDir ? resolveHtlPath(trimmed, sourceDir) : null;
-      const jsRequirePath = requirePath ? null : (sourceDir ? resolveJsUsePath(trimmed, sourceDir) : null);
+      const literalExpr = unwrapPureStringExpression(trimmed);
+      const staticCandidate = literalExpr ?? trimmed;
+      const requirePath = sourceDir ? resolveHtlPath(staticCandidate, sourceDir) : null;
+      const jsRequirePath = requirePath ? null : (sourceDir ? resolveJsUsePath(staticCandidate, sourceDir) : null);
       if (requirePath) {
         directives.fileUse[name] = requirePath;
       } else if (jsRequirePath) {
         directives.jsFileUse[name] = jsRequirePath;
+      } else if (trimmed.includes('${') && (trimmed.endsWith('.js') || trimmed.endsWith('.json'))) {
+        directives.use[name] = val;
+        directives.useDefaults[name] = buildDynamicJsUseDefault(convertInterpolatedString(trimmed));
+      } else if (trimmed.includes('${') && trimmed.endsWith('.html')) {
+        directives.dynamicFileUse[name] = `__resolveUsePath(${convertInterpolatedString(trimmed)})`;
       } else {
         directives.use[name] = val;
         const def = parseUseDefault(trimmed);
@@ -174,7 +283,7 @@ export function parseDirectives(
     }
 
     if (key === 'data-sly-test') {
-      directives.test = convertExpr(val);
+      directives.test = val.trim() ? convertExpr(val) : 'false';
       directives.skip.add(key);
       continue;
     }
@@ -194,20 +303,28 @@ export function parseDirectives(
 
     const repeatMatch = /^data-sly-(?:repeat|list)\.(\w+)$/.exec(key);
     if (repeatMatch) {
+      const { beginExpr, endExpr, stepExpr } = parseRepeatIterationOptions(val);
       directives.repeat = {
         varName: repeatMatch[1],
         listExpr: convertExpr(val),
         listMode: key.startsWith('data-sly-list.'),
+        beginExpr,
+        endExpr,
+        stepExpr,
       };
       directives.skip.add(key);
       continue;
     }
 
     if (key === 'data-sly-list' || key === 'data-sly-repeat') {
+      const { beginExpr, endExpr, stepExpr } = parseRepeatIterationOptions(val);
       directives.repeat = {
         varName: 'item',
         listExpr: convertExpr(val),
         listMode: key === 'data-sly-list',
+        beginExpr,
+        endExpr,
+        stepExpr,
       };
       directives.skip.add(key);
       continue;
@@ -247,14 +364,15 @@ export function parseDirectives(
     }
 
     if (key === 'data-sly-resource') {
-      let resource: string | null = convertExpr(val);
-      if (!resource) {
-        const pathMatch = /@\s*path\s*=\s*([^,}@\s'"]+)/.exec(val);
-        if (pathMatch) resource = convertExpr('${' + pathMatch[1] + '}');
-      }
+      const parsed = parseHtlPathAndOptions(val);
       const rtMatch = /@\s*resourceType\s*=\s*['"]([^'"]+)['"]/.exec(val);
       if (rtMatch) directives.resourceType = rtMatch[1];
-      directives.resource = resource;
+      const params = { ...parsed.params } as Record<string, string> & { resourceType?: string; path?: string };
+      const { resourceType } = params;
+      delete params.resourceType;
+      delete params.path;
+      if (resourceType && !directives.resourceType) directives.resourceType = resourceType;
+      directives.resource = { path: parsed.path, params };
       directives.skip.add(key);
       continue;
     }
@@ -313,7 +431,7 @@ export function parseDirectives(
     }
 
     if (key === 'data-sly-include') {
-      directives.include = val;
+      directives.include = parseHtlPathAndOptions(val);
       directives.skip.add(key);
       continue;
     }

@@ -61,7 +61,7 @@ function transformValue(expr: string): string {
     )
     .replace(
       /([\w$.?[\]]+)\s+in\s+([\w$.?[\]]+)/g,
-      (_match, left: string, right: string) => `(${right}) && (${left} in ${right})`
+      (_match, left: string, right: string) => `_htlIn(${left}, ${right})`
     )
     .replace(/(?<![?.])\b(class|for)\b/g, '_$1');
 
@@ -234,6 +234,8 @@ export function convertAttrValue(value: string): string {
       parts.push(`\${${safe} ?? ''}`);
     } else if (ctx === 'uri') {
       parts.push(`\${_htlUri(${converted})}`);
+    } else if (ctx === 'number') {
+      parts.push(`\${_htlNum(${converted}) ?? ''}`);
     } else {
       parts.push(`\${_htlAttr(${converted})}`);
     }
@@ -256,8 +258,8 @@ export function convertTextContent(text: string): string {
     const converted = convertExpr(expr);
     if (ctx === 'html' || ctx === 'unsafe') {
       const safe = /\|\||&&/.test(converted) ? `(${converted})` : converted;
-      parts.push(`\${${safe} ?? ''}`);
-    } else {
+      parts.push(`\${${safe} ?? ''}`);    } else if (ctx === 'number') {
+      parts.push(`\${_htlNum(${converted}) ?? ''}`);    } else {
       parts.push(`\${_htlText(${converted})}`);
     }
     last = end;

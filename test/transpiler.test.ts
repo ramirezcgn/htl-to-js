@@ -1,8 +1,12 @@
-import fs from 'fs';
-import path from 'path';
-import { createRequire } from 'module';
+import fs from 'node:fs';
+import path from 'node:path';
+import { createRequire } from 'node:module';
 import { transpile, generateDts } from '../src/transpiler/index';
-import { parseI18nXml } from '../src/parseI18nXml';
+import {
+  mergeI18nDicts,
+  parseI18nXml,
+  resolveLocaleChain,
+} from '../src/parseI18nXml';
 import {
   convertExpr,
   convertAttrValue,
@@ -376,6 +380,26 @@ describe('transpile — data-sly-include', () => {
     const out = transpile(src, { filename: 'test.html' });
     expect(out).toContain('_incSlot(_includes, model?.template)');
   });
+
+  it('composes path with appendPath at compile time', () => {
+    const src = `<sly data-sly-include="\${'partials' @ appendPath='template.html'}"></sly>`;
+    const out = transpile(src, { filename: 'test.html' });
+    expect(out).toContain("_incSlot(_includes, 'partials/template.html')");
+  });
+
+  it('composes path with prependPath at compile time', () => {
+    const src = `<sly data-sly-include="\${'template.html' @ prependPath='partials'}"></sly>`;
+    const out = transpile(src, { filename: 'test.html' });
+    expect(out).toContain("_incSlot(_includes, 'partials/template.html')");
+  });
+
+  it('uses _htlJoinPaths for dynamic appendPath', () => {
+    const src = `<sly data-sly-include="\${'partials' @ appendPath=model.tpl}"></sly>`;
+    const out = transpile(src, { filename: 'test.html' });
+    expect(out).toContain('_htlJoinPaths');
+    expect(out).toContain("'partials'");
+    expect(out).toContain('model?.tpl');
+  });
 });
 
 describe('transpile — .size to .length conversion', () => {
@@ -542,6 +566,36 @@ describe('transpile — @ context=uri in attributes', () => {
     new Function('module', code)(mod);
     const fn = Object.values(mod.exports)[0] as Function;
     expect(fn({ model: { url: null } })).toContain('href=""');
+  });
+
+  it('applies uri context automatically to href without explicit context', () => {
+    const src = `<a href="\${model.url}">link</a>`;
+    const code = transpile(src, { filename: 'test.html' });
+    expect(code).toContain('_htlUri(');
+    const mod: any = {};
+    new Function('module', code)(mod);
+    const fn = Object.values(mod.exports)[0] as Function;
+    const html = fn({ model: { url: '/path/with spaces/file.html' } });
+    expect(html).toContain('/path/with%20spaces/file.html');
+  });
+
+  it('applies uri context automatically to src without explicit context', () => {
+    const src = `<img src="\${model.url}" alt="x">`;
+    const code = transpile(src, { filename: 'test.html' });
+    expect(code).toContain('_htlUri(');
+  });
+
+  it('applies uri context automatically to action without explicit context', () => {
+    const src = `<form action="\${model.url}"></form>`;
+    const code = transpile(src, { filename: 'test.html' });
+    expect(code).toContain('_htlUri(');
+  });
+
+  it('does not apply auto-uri to non-uri attributes like title', () => {
+    const src = `<div title="\${model.val}">x</div>`;
+    const code = transpile(src, { filename: 'test.html' });
+    const titleLine = code.split('\n').find(l => l.includes('title'));
+    expect(titleLine).not.toContain('_htlUri(');
   });
 });
 
@@ -821,6 +875,18 @@ describe('transpile — data-sly-resource', () => {
     expect(out).toContain('model?.path');
   });
 
+  it('composes resource path with appendPath at compile time', () => {
+    const src = `<sly data-sly-resource="\${'my/path' @ appendPath='child'}"></sly>`;
+    const out = transpile(src, { filename: 'test.html' });
+    expect(out).toContain("'my/path/child'");
+  });
+
+  it('composes resource path with prependPath at compile time', () => {
+    const src = `<sly data-sly-resource="\${'my/path' @ prependPath='root'}"></sly>`;
+    const out = transpile(src, { filename: 'test.html' });
+    expect(out).toContain("'root/my/path'");
+  });
+
   it('treats bare undefined variable as string literal key', () => {
     const src = `<sly data-sly-resource="\${resource @ resourceType='wcm/foundation/components/responsivegrid'}"></sly>`;
     const code = transpile(src, {
@@ -964,6 +1030,81 @@ describe('transpile — data-sly-list', () => {
     const fn = Object.values(mod.exports)[0] as Function;
     const html = fn({ items: ['a', null, 'b'] });
     expect(html.match(/<li>/g)?.length).toBe(2);
+  });
+
+  it('exposes middle=true for elements that are neither first nor last', () => {
+    const src = `<ul data-sly-list.item="\${items}"><li class="\${itemList.middle ? 'mid' : ''}">\${item}</li></ul>`;
+    const code = transpile(src, { filename: 'test.html' });
+    const mod: any = {};
+    new Function('module', code)(mod);
+    const fn = Object.values(mod.exports)[0] as Function;
+    const html = fn({ items: ['a', 'b', 'c'] });
+    const midCount = (html.match(/class="mid"/g) ?? []).length;
+    expect(midCount).toBe(1);
+  });
+
+  it('middle=false for first and last in a 3-item list', () => {
+    const src = `<ul data-sly-list.item="\${items}"><li>\${itemList.middle}</li></ul>`;
+    const code = transpile(src, { filename: 'test.html' });
+    const mod: any = {};
+    new Function('module', code)(mod);
+    const fn = Object.values(mod.exports)[0] as Function;
+    const html = fn({ items: ['a', 'b', 'c'] });
+    expect(html).toContain('false');
+    expect(html).toContain('true');
+  });
+
+  it('begin skips items before the given index', () => {
+    const src = `<ul data-sly-list.item="\${items @ begin=1}"><li>\${item}</li></ul>`;
+    const code = transpile(src, { filename: 'test.html' });
+    const mod: any = {};
+    new Function('module', code)(mod);
+    const fn = Object.values(mod.exports)[0] as Function;
+    const html = fn({ items: ['a', 'b', 'c'] });
+    expect(html).not.toContain('>a<');
+    expect(html).toContain('>b<');
+    expect(html).toContain('>c<');
+  });
+
+  it('end stops iteration after the given inclusive index', () => {
+    const src = `<ul data-sly-list.item="\${items @ end=1}"><li>\${item}</li></ul>`;
+    const code = transpile(src, { filename: 'test.html' });
+    const mod: any = {};
+    new Function('module', code)(mod);
+    const fn = Object.values(mod.exports)[0] as Function;
+    const html = fn({ items: ['a', 'b', 'c'] });
+    expect(html).toContain('>a<');
+    expect(html).toContain('>b<');
+    expect(html).not.toContain('>c<');
+  });
+
+  it('step iterates every N items', () => {
+    const src = `<ul data-sly-list.item="\${items @ step=2}"><li>\${item}</li></ul>`;
+    const code = transpile(src, { filename: 'test.html' });
+    const mod: any = {};
+    new Function('module', code)(mod);
+    const fn = Object.values(mod.exports)[0] as Function;
+    const html = fn({ items: ['a', 'b', 'c', 'd', 'e'] });
+    expect(html).toContain('>a<');
+    expect(html).not.toContain('>b<');
+    expect(html).toContain('>c<');
+    expect(html).not.toContain('>d<');
+    expect(html).toContain('>e<');
+  });
+
+  it('combines begin, end and step', () => {
+    const src = `<ul data-sly-list.item="\${items @ begin=1, end=5, step=2}"><li>\${item}</li></ul>`;
+    const code = transpile(src, { filename: 'test.html' });
+    const mod: any = {};
+    new Function('module', code)(mod);
+    const fn = Object.values(mod.exports)[0] as Function;
+    const html = fn({ items: ['a', 'b', 'c', 'd', 'e', 'f'] });
+    expect(html).not.toContain('>a<');
+    expect(html).toContain('>b<');
+    expect(html).not.toContain('>c<');
+    expect(html).toContain('>d<');
+    expect(html).not.toContain('>e<');
+    expect(html).toContain('>f<');
   });
 
   it('differs from repeat: repeat repeats the whole element', () => {
@@ -1490,28 +1631,35 @@ describe('transpile — i18n dictionary', () => {
 // ---------------------------------------------------------------------------
 
 describe('convertExpr — in operator edge cases', () => {
+  // _htlIn is emitted by the full transpiler; inject it here for unit-testing convertExpr directly.
+  const _htlIn = (l: unknown, r: unknown): boolean => {
+    if (typeof r === 'string') return r.includes(String(l));
+    if (Array.isArray(r)) return r.includes(l);
+    return r != null && (l as string) in (r as object);
+  };
+
   it('handles multiple in operators chained with &&', () => {
     const result = convertExpr('${a in b && c in d}');
-    expect(result).toContain('in');
+    expect(result).toContain('_htlIn(');
     // Should produce valid JS when evaluated
-    const fn = new Function('a', 'b', 'c', 'd', `return ${result};`);
-    expect(fn('x', { x: 1 }, 'y', { y: 1 })).toBeTruthy();
-    expect(fn('x', { x: 1 }, 'z', { y: 1 })).toBeFalsy();
+    const fn = new Function('_htlIn', 'a', 'b', 'c', 'd', `return ${result};`);
+    expect(fn(_htlIn, 'x', { x: 1 }, 'y', { y: 1 })).toBeTruthy();
+    expect(fn(_htlIn, 'x', { x: 1 }, 'z', { y: 1 })).toBeFalsy();
   });
 
   it('handles in operator with optional-chained left operand', () => {
     const result = convertExpr('${item.name in parent.map}');
-    // Should contain safe-access and in operator
-    expect(result).toContain('in');
-    const fn = new Function('item', 'parent', `return ${result};`);
-    expect(fn({ name: 'k' }, { map: { k: true } })).toBeTruthy();
+    // Should emit the _htlIn helper call
+    expect(result).toContain('_htlIn(');
+    const fn = new Function('_htlIn', 'item', 'parent', `return ${result};`);
+    expect(fn(_htlIn, { name: 'k' }, { map: { k: true } })).toBeTruthy();
   });
 
   it('handles in operator with undefined right side', () => {
     const result = convertExpr('${key in obj}');
-    const fn = new Function('key', 'obj', `return ${result};`);
-    expect(fn('a', undefined)).toBeFalsy();
-    expect(fn('a', null)).toBeFalsy();
+    const fn = new Function('_htlIn', 'key', 'obj', `return ${result};`);
+    expect(fn(_htlIn, 'a', undefined)).toBeFalsy();
+    expect(fn(_htlIn, 'a', null)).toBeFalsy();
   });
 });
 
@@ -1841,6 +1989,21 @@ describe('transpile — test + include combined', () => {
       _includes: { './partial.html': () => 'INCLUDED' },
     });
     expect(html).toContain('INCLUDED');
+  });
+
+  it('passes include args through to the slot function', () => {
+    const src = `<sly data-sly-include="./header.html @ wcmmode='edit'"/>`;
+    const code = transpile(src, { filename: 'test.html' });
+    const mod: any = {};
+    new Function('module', code)(mod);
+    const fn = Object.values(mod.exports)[0] as Function;
+    const html = fn({
+      _includes: {
+        './header.html': ({ wcmmode }: { wcmmode?: string }) =>
+          wcmmode === 'edit' ? 'EDIT' : 'VIEW',
+      },
+    });
+    expect(html).toBe('EDIT');
   });
 });
 
@@ -2358,6 +2521,21 @@ describe('transpile — resourceWrappers', () => {
     expect(html).toContain('<aside>Side</aside>');
   });
 
+  it('passes resource args through to the slot function', () => {
+    const src = `<sly data-sly-resource="\${'par' @ wcmmode='edit'}"></sly>`;
+    const code = transpile(src, { filename: 'test.html' });
+    const mod: any = {};
+    new Function('module', code)(mod);
+    const fn = Object.values(mod.exports)[0] as Function;
+    const html = fn({
+      _includes: {
+        par: ({ wcmmode }: { wcmmode?: string }) =>
+          wcmmode === 'edit' ? '<p>Edit</p>' : '<p>View</p>',
+      },
+    });
+    expect(html).toBe('<p>Edit</p>');
+  });
+
   it('matches by resourceType when key does not match', () => {
     const src = `<sly data-sly-resource="\${'par' @ resourceType='mysite/components/responsivegrid'}"></sly>`;
     const code = transpile(src, {
@@ -2719,6 +2897,26 @@ describe('transpile — fileOverrides', () => {
     expect(code).not.toContain('require(');
   });
 
+  it('supports dynamic data-sly-call targets', () => {
+    const src = [
+      '<sly data-sly-use.variant="com.example.Variant">',
+      '  <sly data-sly-use.tpl="myTemplate.html"',
+      '       data-sly-call="${tpl[variant] @ title=\'Hi\'}"></sly>',
+      '</sly>',
+    ].join('\n');
+    const code = transpile(src, {
+      filename: 'test.html',
+      fileOverrides: {
+        'myTemplate.html': "{ one: ({ title }) => '<b>' + title + '</b>', two: ({ title }) => '<i>' + title + '</i>' }",
+      },
+    });
+    const mod: any = {};
+    new Function('module', code)(mod);
+    const fn = Object.values(mod.exports)[0] as Function;
+    expect(fn({ variant: 'one' })).toContain('<b>Hi</b>');
+    expect(fn({ variant: 'two' })).toContain('<i>Hi</i>');
+  });
+
   it('htl content is transpiled inline and used as override', () => {
     const src = [
       '<sly data-sly-use.container="com.example.LayoutContainer">',
@@ -2754,6 +2952,39 @@ describe('transpile — fileOverrides', () => {
     });
     expect(html).toContain('<div id="cq-1" class="cmp-container">');
     expect(html).toContain('<p>Hello</p>');
+  });
+
+  it('resolves interpolated html use paths at runtime', () => {
+    const src = [
+      '<sly data-sly-use.component="tabs-${model.tabsTemplate}.html">',
+      '  <sly data-sly-call="${component.tabs @ model=model}"></sly>',
+      '</sly>',
+    ].join('\n');
+    const code = transpile(src, {
+      filename: path.join(fixturesDir, 'tabs-host.html'),
+    });
+    expect(code).toContain('require(');
+    expect(code).toContain('tabs-');
+    expect(code).toContain('tabsTemplate');
+
+    const requests: string[] = [];
+    const fakeRequire = (request: string) => {
+      requests.push(request);
+      if (request === './tabs-vertical.html') {
+        return {
+          createTabs: ({ model }: { model: any }) => `<div>${model.tabsTemplate}</div>`,
+        };
+      }
+      throw new Error(`Unexpected require: ${request}`);
+    };
+
+    const mod: any = {};
+    new Function('module', 'require', code)(mod, fakeRequire);
+    const fn = Object.values(mod.exports)[0] as Function;
+    const html = fn({ model: { tabsTemplate: 'vertical' } });
+
+    expect(requests).toContain('./tabs-vertical.html');
+    expect(html).toContain('<div>vertical</div>');
   });
 
   it('htl content with data-sly-resource triggers resourceWrappers', () => {
@@ -3019,6 +3250,14 @@ describe('transpile — __slots__', () => {
     const mod: any = {};
     new Function('module', code)(mod);
     expect(mod.exports.__slots__).toEqual(['header']);
+  });
+
+  it('collects slot key when _incSlot has a third params argument', () => {
+    const src = `<sly data-sly-include="\${'header.html' @ wcmmode='edit'}"></sly>`;
+    const code = transpile(src, { filename: 'test.html' });
+    const mod: any = {};
+    new Function('module', code)(mod);
+    expect(mod.exports.__slots__).toEqual(['header.html']);
   });
 
   it('attaches __slots__ directly to each exported create function', () => {
@@ -3446,6 +3685,58 @@ describe('data-sly-use — JS module (plain object) file resolution', () => {
   });
 });
 
+describe('data-sly-use — interpolated JS / JSON file resolution', () => {
+  it('resolves interpolated .js use paths at runtime', () => {
+    const src = `<div data-sly-use.variant="com.example.Variant"
+     data-sly-use.component="./card-${'$'}{variant}.js">${'$'}{component.title}</div>`;
+    const code = transpile(src, {
+      filename: path.join(fixturesDir, 'test.html'),
+    });
+    expect(code).toContain('require(');
+    expect(code).toContain('card-');
+
+    const requests: string[] = [];
+    const fakeRequire = (request: string) => {
+      requests.push(request);
+      if (request === './card-model.js') {
+        return { title: 'Dynamic JS Title' };
+      }
+      throw new Error(`Unexpected require: ${request}`);
+    };
+
+    const mod: any = {};
+    new Function('module', 'require', code)(mod, fakeRequire);
+    const fn = Object.values(mod.exports)[0] as Function;
+    expect(fn({ variant: 'model' })).toContain('Dynamic JS Title');
+    expect(requests).toContain('./card-model.js');
+  });
+
+  it('resolves interpolated .json use paths at runtime', () => {
+    const src = `<div data-sly-use.variant="com.example.Variant"
+     data-sly-use.component="./card-${'$'}{variant}.json">${'$'}{component.title}</div>`;
+    const code = transpile(src, {
+      filename: path.join(fixturesDir, 'test.html'),
+    });
+    expect(code).toContain('require(');
+    expect(code).toContain('card-');
+
+    const requests: string[] = [];
+    const fakeRequire = (request: string) => {
+      requests.push(request);
+      if (request === './card-model.json') {
+        return { title: 'Dynamic JSON Title' };
+      }
+      throw new Error(`Unexpected require: ${request}`);
+    };
+
+    const mod: any = {};
+    new Function('module', 'require', code)(mod, fakeRequire);
+    const fn = Object.values(mod.exports)[0] as Function;
+    expect(fn({ variant: 'model' })).toContain('Dynamic JSON Title');
+    expect(requests).toContain('./card-model.json');
+  });
+});
+
 describe('data-sly-use — JS factory function file resolution', () => {
   it('calls the factory and returns its result when module exports a function', () => {
     const src = `<div data-sly-use.model="./card.factory.js">\${model.title}</div>`;
@@ -3485,8 +3776,6 @@ describe('data-sly-use — unresolvable path stays as class-name param', () => {
 // ---------------------------------------------------------------------------
 // i18n — locale fallback (mergeI18nDicts + i18nFallbackDicts)
 // ---------------------------------------------------------------------------
-
-import { mergeI18nDicts, resolveLocaleChain } from '../src/parseI18nXml';
 
 describe('mergeI18nDicts', () => {
   it('returns the single dict when only one argument is passed', () => {
@@ -3694,7 +3983,7 @@ describe('transpile — ESM output', () => {
     const src = `<div data-sly-use.model="./card.model.json">${'$'}{model.title}</div>`;
     const code = transpile(src, { filename: path.join(fixturesDir, 'test.html'), format: 'esm' });
     // The import binding should be used as the default parameter value
-    const importMatch = code.match(/import\s+(\S+)\s+from\s+['"].*card\.model\.json['"]/);
+    const importMatch = /import\s+(\S+)\s+from\s+['"].*card\.model\.json['"]/.exec(code);
     expect(importMatch).not.toBeNull();
     const binding = importMatch![1];
     expect(code).toContain(`model = ${binding}`);
@@ -3722,12 +4011,6 @@ describe('transpile — ESM output', () => {
   });
 
   it('emits __slots__ export in ESM mode', () => {
-    const src = `
-      <template data-sly-template.card>
-        <slot data-sly-call="\${'$'}{_includes['title']}"></slot>
-      </template>
-    `.replace(/\$\{'\\$'\}/g, '$');
-    const slotSrc = `<template data-sly-template.card><sly data-sly-test="\${'$'}{_incSlot(_includes,'title')}"></sly></template>`;
     // Use a pre-built src that triggers __slots__
     const slotCode = `<div data-sly-include="\${'$'}{comp @ wcmmode='edit'}">\${'$'}{_incSlot(_includes, 'header')}</div>`;
     const code = transpile(slotCode, { filename: 'test.html', format: 'esm' });
@@ -3739,8 +4022,83 @@ describe('transpile — ESM output', () => {
 });
 
 // ---------------------------------------------------------------------------
-// convertExpr — parser robustness (@ inside string literals)
+// _htlIn — string containment and array value lookup (spec §1.1.4.3)
 // ---------------------------------------------------------------------------
+
+describe('transpile — _htlIn helper (in operator)', () => {
+  it('returns true when a string value is contained by another string', () => {
+    const src = `<div data-sly-test="\${model.needle in model.haystack}">found</div>`;
+    const code = transpile(src, { filename: 'test.html' });
+    expect(code).toContain('_htlIn(');
+    const mod: any = {};
+    new Function('module', code)(mod);
+    const fn = Object.values(mod.exports)[0] as Function;
+    expect(fn({ model: { needle: 'ab', haystack: 'abc' } })).toContain('found');
+    expect(fn({ model: { needle: 'd', haystack: 'abc' } })).not.toContain('found');
+  });
+
+  it('returns true when a value is contained in an array', () => {
+    const src = `<div data-sly-test="\${model.needle in model.haystack}">found</div>`;
+    const code = transpile(src, { filename: 'test.html' });
+    expect(code).toContain('_htlIn(');
+    const mod: any = {};
+    new Function('module', code)(mod);
+    const fn = Object.values(mod.exports)[0] as Function;
+    expect(fn({ model: { needle: 100, haystack: [100, 200, 300] } })).toContain('found');
+    expect(fn({ model: { needle: 1, haystack: [100, 200, 300] } })).not.toContain('found');
+  });
+
+  it('returns false for array containment when right side is undefined', () => {
+    const src = `<div data-sly-test="\${model.needle in model.haystack}">found</div>`;
+    const code = transpile(src, { filename: 'test.html' });
+    const mod: any = {};
+    new Function('module', code)(mod);
+    const fn = Object.values(mod.exports)[0] as Function;
+    expect(() => fn({ model: { needle: 1 } })).not.toThrow();
+    expect(fn({ model: { needle: 1 } })).not.toContain('found');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// _htlAttr — arrays rendered as comma-joined strings (spec §1.1.5.2)
+// ---------------------------------------------------------------------------
+
+describe('transpile — _htlAttr array rendering', () => {
+  it('renders a string array as comma-joined attribute value', () => {
+    const src = `<div title="\${model.tags}">content</div>`;
+    const code = transpile(src, { filename: 'test.html' });
+    const mod: any = {};
+    new Function('module', code)(mod);
+    const fn = Object.values(mod.exports)[0] as Function;
+    const html = fn({ model: { tags: ['one', 'two', 'three'] } });
+    expect(html).toContain('title="one,two,three"');
+  });
+
+  it('HTML-escapes each element of the array', () => {
+    const src = `<div title="\${model.tags}">content</div>`;
+    const code = transpile(src, { filename: 'test.html' });
+    const mod: any = {};
+    new Function('module', code)(mod);
+    const fn = Object.values(mod.exports)[0] as Function;
+    const html = fn({ model: { tags: ['<foo>', '&bar'] } });
+    expect(html).toContain('&lt;foo&gt;');
+    expect(html).toContain('&amp;bar');
+    expect(html).not.toContain('<foo>');
+  });
+
+  it('still serializes plain objects as JSON in attributes', () => {
+    const src = `<div data-config="\${model.config}">content</div>`;
+    const code = transpile(src, { filename: 'test.html' });
+    const mod: any = {};
+    new Function('module', code)(mod);
+    const fn = Object.values(mod.exports)[0] as Function;
+    const html = fn({ model: { config: { a: 1 } } });
+    expect(html).toContain('&quot;a&quot;');
+  });
+});
+
+// ---------------------------------------------------------------------------
+
 
 describe('convertExpr — @ inside string literals', () => {
   it('preserves a standalone string literal containing @', () => {
@@ -3767,6 +4125,175 @@ describe('convertExpr — @ inside string literals', () => {
 
   it('preserves @ in a join separator string', () => {
     expect(convertExpr("list @ join='@'")).toBe("(list).join('@')");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Spec §2.2.5 — data-sly-test with no value (boolean attribute)
+// ---------------------------------------------------------------------------
+
+describe('transpile — data-sly-test with no value', () => {
+  it('hides element when data-sly-test has no value (boolean attribute)', () => {
+    const src = '<p data-sly-test>should be hidden</p>';
+    const code = transpile(src, { filename: 'test.html' });
+    const mod: any = {};
+    new Function('module', code)(mod);
+    const fn = Object.values(mod.exports)[0] as Function;
+    const html = fn({});
+    expect(html).toBe('');
+  });
+
+  it('shows element when data-sly-test has a truthy expression', () => {
+    const src = '<p data-sly-test="${show}">visible</p>';
+    const code = transpile(src, { filename: 'test.html' });
+    const mod: any = {};
+    new Function('module', code)(mod);
+    const fn = Object.values(mod.exports)[0] as Function;
+    expect(fn({ show: true })).toContain('visible');
+    expect(fn({ show: false })).toBe('');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Spec §2.2.6 — data-sly-list: wrapper hidden when list is empty
+// ---------------------------------------------------------------------------
+
+describe('transpile — data-sly-list empty list visibility', () => {
+  it('hides wrapper element when list is empty', () => {
+    const src = '<ul data-sly-list.item="${items}"><li>${item}</li></ul>';
+    const code = transpile(src, { filename: 'test.html' });
+    const mod: any = {};
+    new Function('module', code)(mod);
+    const fn = Object.values(mod.exports)[0] as Function;
+    const html = fn({ items: [] });
+    expect(html).toBe('');
+  });
+
+  it('shows wrapper element when list has items', () => {
+    const src = '<ul data-sly-list.item="${items}"><li>${item}</li></ul>';
+    const code = transpile(src, { filename: 'test.html' });
+    const mod: any = {};
+    new Function('module', code)(mod);
+    const fn = Object.values(mod.exports)[0] as Function;
+    const html = fn({ items: ['a', 'b'] });
+    expect(html).toContain('<ul>');
+    expect(html).toContain('<li>a</li>');
+    expect(html).toContain('<li>b</li>');
+    expect(html).toContain('</ul>');
+  });
+
+  it('hides wrapper when list is null or undefined', () => {
+    const src = '<ul data-sly-list.item="${items}"><li>${item}</li></ul>';
+    const code = transpile(src, { filename: 'test.html' });
+    const mod: any = {};
+    new Function('module', code)(mod);
+    const fn = Object.values(mod.exports)[0] as Function;
+    expect(fn({ items: null })).toBe('');
+    expect(fn({})).toBe('');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Spec §1.2.1 — context='number'
+// ---------------------------------------------------------------------------
+
+describe('transpile — context=number in attribute', () => {
+  it('renders numeric value as string attribute', () => {
+    const src = "<input min=\"${qttMin @ context='number'}\">";
+    const code = transpile(src, { filename: 'test.html' });
+    const mod: any = {};
+    new Function('module', code)(mod);
+    const fn = Object.values(mod.exports)[0] as Function;
+    const html = fn({ qttMin: 5 });
+    expect(html).toContain('min="5"');
+  });
+
+  it('omits attribute when value is not a number', () => {
+    const src = "<input min=\"${val @ context='number'}\">";
+    const code = transpile(src, { filename: 'test.html' });
+    const mod: any = {};
+    new Function('module', code)(mod);
+    const fn = Object.values(mod.exports)[0] as Function;
+    const html = fn({ val: 'hello' });
+    expect(html).not.toContain('min=');
+  });
+
+  it('omits attribute when value is null', () => {
+    const src = "<input min=\"${val @ context='number'}\">";
+    const code = transpile(src, { filename: 'test.html' });
+    const mod: any = {};
+    new Function('module', code)(mod);
+    const fn = Object.values(mod.exports)[0] as Function;
+    const html = fn({ val: null });
+    expect(html).not.toContain('min=');
+  });
+
+  it('renders 0 as "0" (zero is a valid number)', () => {
+    const src = "<input min=\"${val @ context='number'}\">";
+    const code = transpile(src, { filename: 'test.html' });
+    const mod: any = {};
+    new Function('module', code)(mod);
+    const fn = Object.values(mod.exports)[0] as Function;
+    const html = fn({ val: 0 });
+    expect(html).toContain('min="0"');
+  });
+});
+
+describe('transpile — context=number in text node', () => {
+  it('renders numeric value as text', () => {
+    const src = "<span>${count @ context='number'}</span>";
+    const code = transpile(src, { filename: 'test.html' });
+    const mod: any = {};
+    new Function('module', code)(mod);
+    const fn = Object.values(mod.exports)[0] as Function;
+    const html = fn({ count: 42 });
+    expect(html).toContain('<span>42</span>');
+  });
+
+  it('outputs empty string when value is not a number', () => {
+    const src = "<span>${val @ context='number'}</span>";
+    const code = transpile(src, { filename: 'test.html' });
+    const mod: any = {};
+    new Function('module', code)(mod);
+    const fn = Object.values(mod.exports)[0] as Function;
+    const html = fn({ val: 'hello' });
+    expect(html).toContain('<span></span>');
+  });
+
+  it('outputs "0" for zero', () => {
+    const src = "<span>${val @ context='number'}</span>";
+    const code = transpile(src, { filename: 'test.html' });
+    const mod: any = {};
+    new Function('module', code)(mod);
+    const fn = Object.values(mod.exports)[0] as Function;
+    const html = fn({ val: 0 });
+    expect(html).toContain('<span>0</span>');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// data-sly-text zero and boolean values (spec §1.1.5.2 — string casting)
+// ---------------------------------------------------------------------------
+
+describe('transpile — data-sly-text edge cases', () => {
+  it('outputs "0" when value is the number zero', () => {
+    const src = '<p data-sly-text="${count}"></p>';
+    const code = transpile(src, { filename: 'test.html' });
+    const mod: any = {};
+    new Function('module', code)(mod);
+    const fn = Object.values(mod.exports)[0] as Function;
+    const html = fn({ count: 0 });
+    expect(html).toContain('<p>0</p>');
+  });
+
+  it('outputs "false" when value is boolean false', () => {
+    const src = '<p data-sly-text="${flag}"></p>';
+    const code = transpile(src, { filename: 'test.html' });
+    const mod: any = {};
+    new Function('module', code)(mod);
+    const fn = Object.values(mod.exports)[0] as Function;
+    const html = fn({ flag: false });
+    expect(html).toContain('<p>false</p>');
   });
 });
 

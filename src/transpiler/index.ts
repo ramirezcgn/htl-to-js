@@ -36,6 +36,9 @@ const AEM_IMPLICITS: Record<string, string> = {
     "{ requestPathInfo: { selectorString: '', suffix: '', resourcePath: ''  }, contextPath: ''  }",
 };
 
+// Canonical AEM paragraph-system slot names checked in priority order.
+const PARSYS_SLOTS = new Set(['par', 'parsys', 'content', 'main', 'centerpar', 'leftpar', 'rightpar']);
+
 interface TranspileOptions {
   filename?: string;
   omitAttrs?: RegExp[];
@@ -509,6 +512,14 @@ function buildJsUseEsm(
   };
 }
 
+function findContentSlot(body: string): string | null {
+  const slots: string[] = [];
+  for (const m of body.matchAll(/_incSlot\(_includes,\s*'([^']+)'/g)) {
+    slots.push(m[1]);
+  }
+  return slots.find(s => PARSYS_SLOTS.has(s)) ?? slots[0] ?? null;
+}
+
 function buildFunctionBody(
   fnName: string,
   paramStr: string,
@@ -517,6 +528,12 @@ function buildFunctionBody(
   transformDecls = ''
 ): string {
   const lines = [`const ${fnName} = (${paramStr}) => {`];
+  if (paramStr.includes('_includes')) {
+    const slot = findContentSlot(body);
+    if (slot) {
+      lines.push(`  if (_rest.content != null) _includes = Object.assign({ '${slot}': _rest.content }, _includes);`);
+    }
+  }
   if (transformDecls) lines.push(transformDecls);
   if (setDecls) lines.push(setDecls);
   lines.push(`  return /* html */\`${body.trim()}\`;`, '};');
@@ -772,13 +789,13 @@ function parseDirectTransformBindings(
     .filter(Boolean);
 
   for (const entry of entries) {
-    const aliasMatch = /^(model|_includes|varName)\s*:\s*([A-Za-z_$][\w$]*)$/.exec(entry);
+    const aliasMatch = /^(model|_includes|varName|content)\s*:\s*([A-Za-z_$][\w$]*)$/.exec(entry);
     if (aliasMatch) {
       bindings.set(aliasMatch[2], resolveDirectBindingValue(aliasMatch[1], varName));
       continue;
     }
 
-    if (/^(model|_includes|varName)$/.test(entry)) {
+    if (/^(model|_includes|varName|content)$/.test(entry)) {
       bindings.set(entry, resolveDirectBindingValue(entry, varName));
       continue;
     }
@@ -805,6 +822,7 @@ function parseDirectTransformBindings(
 function resolveDirectBindingValue(bindingName: string, varName: string): string {
   if (bindingName === 'model') return varName;
   if (bindingName === '_includes') return '_includes';
+  if (bindingName === 'content') return '_rest.content';
   return JSON.stringify(varName);
 }
 

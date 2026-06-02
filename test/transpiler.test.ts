@@ -3212,6 +3212,254 @@ describe('modelTransforms — varName binding in _includes function', () => {
   });
 });
 
+describe('modelTransforms — array-of-items pattern (tabs / accordion / carousel)', () => {
+  it('transforms component.items array into per-item _includes slots', () => {
+    // Template uses data-sly-resource with dynamic path (each item renders in its own slot).
+    // The transformer maps items → { [item.name]: () => item.content }.
+    const src = `
+      <div data-sly-use.component="com.example.Tabs">
+        <sly data-sly-repeat.item="\${component.items}"
+             data-sly-resource="\${item.name}">
+        </sly>
+      </div>`;
+
+    const code = transpile(src, {
+      filename: 'test.html',
+      modelTransforms: {
+        Tabs: {
+          _includes: ({ component }: Record<string, any>) =>
+            Object.fromEntries(
+              (component?.items || component?.children || []).map((item: any) => [
+                item.name || item.id,
+                () => (typeof item.content === 'function' ? item.content() : (item.content || '')),
+              ])
+            ),
+        },
+      },
+    });
+
+    expect(code).not.toContain('[object Object]');
+    const mod: any = {};
+    new Function('module', code)(mod);
+    const fn = Object.values(mod.exports)[0] as Function;
+
+    const html = fn({
+      component: {
+        items: [
+          { name: 'tab-1', content: '<p>First tab</p>' },
+          { name: 'tab-2', content: '<p>Second tab</p>' },
+        ],
+      },
+    });
+    expect(html).toContain('<p>First tab</p>');
+    expect(html).toContain('<p>Second tab</p>');
+  });
+
+  it('story _includes overrides transformer slots', () => {
+    const src = `
+      <div data-sly-use.component="com.example.Tabs">
+        <sly data-sly-repeat.item="\${component.items}"
+             data-sly-resource="\${item.name}">
+        </sly>
+      </div>`;
+
+    const code = transpile(src, {
+      filename: 'test.html',
+      modelTransforms: {
+        Tabs: {
+          _includes: ({ component }: Record<string, any>) =>
+            Object.fromEntries(
+              (component?.items || []).map((item: any) => [
+                item.name,
+                () => (item.content || ''),
+              ])
+            ),
+        },
+      },
+    });
+
+    const mod: any = {};
+    new Function('module', code)(mod);
+    const fn = Object.values(mod.exports)[0] as Function;
+
+    // _includes.tab-1 from story overrides the transformer
+    const html = fn({
+      component: { items: [{ name: 'tab-1', content: '<p>from-transform</p>' }] },
+      _includes: { 'tab-1': () => '<p>from-story</p>' },
+    });
+    expect(html).toContain('from-story');
+    expect(html).not.toContain('from-transform');
+  });
+});
+
+describe('transpile — content shorthand parameter', () => {
+  it('createFn({ content }) renders as the parsys content slot', () => {
+    const src = `<div data-sly-use.model="com.example.Page"><sly data-sly-resource="\${'content'}"></sly></div>`;
+    const code = transpile(src, { filename: 'test.html' });
+    const mod: any = {};
+    new Function('module', code)(mod);
+    const fn = Object.values(mod.exports)[0] as Function;
+
+    // Pass content directly — no _includes wrapper needed
+    const html = fn({ model: {}, content: () => '<p>some content</p>' });
+    expect(html).toContain('<p>some content</p>');
+  });
+
+  it('explicit _includes.content wins over the content shorthand', () => {
+    const src = `<div data-sly-use.model="com.example.Page"><sly data-sly-resource="\${'content'}"></sly></div>`;
+    const code = transpile(src, { filename: 'test.html' });
+    const mod: any = {};
+    new Function('module', code)(mod);
+    const fn = Object.values(mod.exports)[0] as Function;
+
+    const html = fn({
+      content: () => '<p>from-shorthand</p>',
+      _includes: { content: () => '<p>from-includes</p>' },
+    });
+    expect(html).toContain('from-includes');
+    expect(html).not.toContain('from-shorthand');
+  });
+
+  it('content shorthand also works as a plain string', () => {
+    const src = `<div data-sly-use.model="com.example.Page"><sly data-sly-resource="\${'content'}"></sly></div>`;
+    const code = transpile(src, { filename: 'test.html' });
+    const mod: any = {};
+    new Function('module', code)(mod);
+    const fn = Object.values(mod.exports)[0] as Function;
+
+    expect(fn({ content: '<p>str content</p>' })).toContain('<p>str content</p>');
+  });
+
+  it('other _rest props still flow to child data-sly-call', () => {
+    const src = `
+      <template data-sly-template.outer="\${@ item}">
+        <sly data-sly-call="\${inner @ item=item}"></sly>
+      </template>
+      <template data-sly-template.inner="\${@ item}">
+        <div>\${item}</div>
+      </template>`;
+    const code = transpile(src, { filename: 'test.html' });
+    const mod: any = {};
+    new Function('module', code)(mod);
+    // extra is in _rest and flows down via ..._rest to inner
+    const html = mod.exports.createOuter({ item: 'hello', extra: 'x' });
+    expect(html).toContain('<div>hello</div>');
+  });
+});
+
+describe('modelTransforms — content binding (typeof check / the canonical use case)', () => {
+  // content binding resolves to _rest.content — the raw value passed directly by the story.
+  // The transform maps it to the real slot name (par, parsys, etc.).
+  const makeTransform = () => ({
+    Page: {
+      _includes: ({ content }: Record<string, any>) =>
+        content
+          ? { par: typeof content === 'function' ? content : () => content }
+          : {},
+    },
+  });
+
+  it('story passes content as a function → par slot receives the function (typeof === function)', () => {
+    const src = `<div data-sly-use.model="com.example.Page"><sly data-sly-resource="\${'par'}"></sly></div>`;
+    const code = transpile(src, { filename: 'test.html', modelTransforms: makeTransform() });
+    const mod: any = {};
+    new Function('module', code)(mod);
+    const fn = Object.values(mod.exports)[0] as Function;
+    // pass content at top level — no _includes wrapper
+    const html = fn({ content: () => '<p>fn-content</p>' });
+    expect(html).toContain('<p>fn-content</p>');
+  });
+
+  it('story passes content as a string → par slot wraps it in a function (typeof !== function)', () => {
+    const src = `<div data-sly-use.model="com.example.Page"><sly data-sly-resource="\${'par'}"></sly></div>`;
+    const code = transpile(src, { filename: 'test.html', modelTransforms: makeTransform() });
+    const mod: any = {};
+    new Function('module', code)(mod);
+    const fn = Object.values(mod.exports)[0] as Function;
+    const html = fn({ content: '<p>str-content</p>' });
+    expect(html).toContain('<p>str-content</p>');
+  });
+
+  it('omits par slot when no content provided (returns empty {})', () => {
+    const src = `<div data-sly-use.model="com.example.Page"><sly data-sly-resource="\${'par'}"></sly></div>`;
+    const code = transpile(src, { filename: 'test.html', modelTransforms: makeTransform() });
+    const mod: any = {};
+    new Function('module', code)(mod);
+    const fn = Object.values(mod.exports)[0] as Function;
+    expect(fn({})).toBe('<div></div>');
+  });
+});
+
+describe('modelTransforms — content binding', () => {
+  it('content binding receives _rest.content and can target a different slot than auto-merge', () => {
+    // Template has two slots: par (parsys → auto-merge target) and header.
+    // The transform maps content → header (different slot); no conflict.
+    const src = `<div data-sly-use.model="com.example.Page">
+  <sly data-sly-resource="\${'par'}"></sly>
+  <sly data-sly-resource="\${'header'}"></sly>
+</div>`;
+    const code = transpile(src, {
+      filename: 'test.html',
+      modelTransforms: {
+        Page: {
+          _includes: ({ model, content }: Record<string, any>) => ({
+            header: () => `<nav>${model.nav}</nav>`,
+            ...(content ? { par: typeof content === 'function' ? content : () => content } : {}),
+          }),
+        },
+      },
+    });
+    expect(code).not.toContain('[object Object]');
+    expect(code).toContain('_rest.content');
+
+    const mod: any = {};
+    new Function('module', code)(mod);
+    const fn = Object.values(mod.exports)[0] as Function;
+
+    const html = fn({ model: { nav: 'Nav' }, content: () => '<p>Page body</p>' });
+    expect(html).toContain('<p>Page body</p>');
+    expect(html).toContain('<nav>Nav</nav>');
+  });
+
+  it('content binding with alias (content: c) — receives _rest.content', () => {
+    const src = `<div data-sly-use.model="com.example.Page"><sly data-sly-resource="\${'slot'}"></sly></div>`;
+    const code = transpile(src, {
+      filename: 'test.html',
+      modelTransforms: {
+        Page: {
+          _includes: ({ content: c }: Record<string, any>) => ({
+            slot: typeof c === 'function' ? c : () => (c ?? ''),
+          }),
+        },
+      },
+    });
+    const mod: any = {};
+    new Function('module', code)(mod);
+    const fn = Object.values(mod.exports)[0] as Function;
+
+    // story passes content directly
+    expect(fn({ content: () => '<p>inner</p>' })).toContain('<p>inner</p>');
+  });
+
+  it('returns empty when content is not provided', () => {
+    const src = `<div data-sly-use.model="com.example.Page"><sly data-sly-resource="\${'slot'}"></sly></div>`;
+    const code = transpile(src, {
+      filename: 'test.html',
+      modelTransforms: {
+        Page: {
+          _includes: ({ content }: Record<string, any>) => ({
+            slot: typeof content === 'function' ? content : () => (content ?? ''),
+          }),
+        },
+      },
+    });
+    const mod: any = {};
+    new Function('module', code)(mod);
+    const fn = Object.values(mod.exports)[0] as Function;
+    expect(fn({})).toContain('<div></div>');
+  });
+});
+
 describe('modelTransforms — non-serializable fallback throws TypeError', () => {
   it('throws TypeError when the legacy fallback returns a non-string', () => {
     // A function with an unrecognized binding name that returns an object at call-time

@@ -591,6 +591,7 @@ function addUseDefaultRefs(
 ): void {
   for (const expr of Object.values(useDefaults)) {
     if (!expr) continue;
+    if (String(expr).trimStart().startsWith('(()')) continue;
     const stripped = String(expr)
       .replaceAll(/'[^']*'/g, '')
       .replaceAll(/"[^"]*"/g, '');
@@ -917,7 +918,7 @@ function addFreeVarParams(params: ParamDecl[], ctx: WalkerContext): void {
 }
 
 function buildParamStr(params: ParamDecl[]): string {
-  if (!params.length) return '';
+  if (!params.length) return `{ ..._rest } = {}`;
   const inner = params
     .map((p) => {
       const safe = JS_RESERVED.has(p.name) ? `_${p.name}` : p.name;
@@ -926,7 +927,7 @@ function buildParamStr(params: ParamDecl[]): string {
         : `${p.name}: ${safe} = ${p.default}`;
     })
     .join(', ');
-  return `{ ${inner} } = {}`;
+  return `{ ${inner}, ..._rest } = {}`;
 }
 
 function buildSetDecls(sets: SetDecl[]): string {

@@ -4328,3 +4328,163 @@ describe('transpile — data-sly-text edge cases', () => {
   });
 });
 
+// ---------------------------------------------------------------------------
+// _rest pass-through — sub-model injection across data-sly-call boundaries
+// ---------------------------------------------------------------------------
+
+describe('transpile — _rest pass-through for sub-model injection', () => {
+  it('includes ..._rest in every generated function signature', () => {
+    const src = `<div data-sly-use.model="com.example.Model">\${model.title}</div>`;
+    const code = transpile(src, { filename: 'test.html' });
+    expect(code).toContain('..._rest');
+  });
+
+  it('forwards extra props to a local template via data-sly-call', () => {
+    // "inner" template declares its own use of submodel; "outer" just calls it.
+    // The story passes submodel via extra args — it should flow through.
+    const src = `
+      <template data-sly-template.outer="\${@ title}">
+        <sly data-sly-call="\${inner @ title=title}"></sly>
+      </template>
+      <template data-sly-template.inner="\${@ title}">
+        <div class="\${extraClass}">\${title}</div>
+      </template>`;
+    const code = transpile(src, { filename: 'test.html' });
+    const mod: any = {};
+    new Function('module', code)(mod);
+
+    const html = mod.exports.createOuter({ title: 'Hello', extraClass: 'bold' });
+    expect(html).toContain('class="bold"');
+    expect(html).toContain('Hello');
+  });
+
+  it('extra props default to {} (or empty) when not supplied — backward compat', () => {
+    const src = `
+      <template data-sly-template.card="\${@ item}">
+        <div>\${submodel.label} \${item.name}</div>
+      </template>`;
+    const code = transpile(src, { filename: 'test.html' });
+    const mod: any = {};
+    new Function('module', code)(mod);
+    const fn = mod.exports.createCard as Function;
+
+    // submodel not passed → submodel.label renders as empty string
+    const html = fn({ item: { name: 'Widget' } });
+    expect(html).toContain('Widget');
+    expect(html).not.toContain('[object');
+  });
+
+  it('explicit @ params take precedence over _rest', () => {
+    // When the caller explicitly names a param in the @ binding, that value
+    // wins even if the story also passes the same key via extra args.
+    const src = `
+      <template data-sly-template.outer="\${@ item}">
+        <sly data-sly-call="\${inner @ label=item.name}"></sly>
+      </template>
+      <template data-sly-template.inner="\${@ label}">
+        <span>\${label}</span>
+      </template>`;
+    const code = transpile(src, { filename: 'test.html' });
+    const mod: any = {};
+    new Function('module', code)(mod);
+
+    // label is set explicitly to item.name; any "label" in _rest is overridden
+    const html = mod.exports.createOuter({
+      item: { name: 'explicit' },
+      label: 'from-rest',  // must NOT win
+    });
+    expect(html).toContain('explicit');
+    expect(html).not.toContain('from-rest');
+  });
+
+  it('forwards extra props across two levels of local template calls (A→B→C)', () => {
+    const src = `
+      <template data-sly-template.a="\${@ x}">
+        <sly data-sly-call="\${b @ x=x}"></sly>
+      </template>
+      <template data-sly-template.b="\${@ x}">
+        <sly data-sly-call="\${c @ x=x}"></sly>
+      </template>
+      <template data-sly-template.c="\${@ x}">
+        <p class="\${extra}">\${x}</p>
+      </template>`;
+    const code = transpile(src, { filename: 'test.html' });
+    const mod: any = {};
+    new Function('module', code)(mod);
+
+    // "extra" flows from the story all the way down to template c
+    const html = mod.exports.createA({ x: 'deep', extra: 'highlight' });
+    expect(html).toContain('class="highlight"');
+    expect(html).toContain('deep');
+  });
+
+  it('injects data-sly-use sub-model declared in a called template (fileOverride htl)', () => {
+    // The canonical scenario: host.html calls card.html; card.html has its own
+    // data-sly-use.submodel="com.example.SubModel". There must be a way to pass
+    // a value for submodel from the Storybook story via the host call.
+    const hostSrc = `
+      <sly data-sly-use.tpl="card.html"
+           data-sly-call="\${tpl.card @ item=model}">
+      </sly>`;
+
+    const cardHtl = [
+      '<template data-sly-template.card="${@ item}">',
+      '  <div data-sly-use.submodel="com.example.SubModel">',
+      '    <h2>${submodel.title}</h2>',
+      '    <p>${item.desc}</p>',
+      '  </div>',
+      '</template>',
+    ].join('\n');
+
+    const code = transpile(hostSrc, {
+      filename: 'test.html',
+      fileOverrides: { 'card.html': { htl: cardHtl } },
+    });
+
+
+    const mod: any = {};
+    new Function('module', code)(mod);
+    const fn = Object.values(mod.exports)[0] as Function;
+
+    // Without submodel: renders empty h2
+    const withoutSubmodel = fn({ model: { desc: 'desc only' } });
+    expect(withoutSubmodel).toContain('<p>desc only</p>');
+    expect(withoutSubmodel).toContain('<h2></h2>');
+
+    // With submodel passed as an extra prop: flows through _rest into card.html
+    const withSubmodel = fn({ model: { desc: 'desc' }, submodel: { title: 'Injected' } });
+    expect(withSubmodel).toContain('<h2>Injected</h2>');
+    expect(withSubmodel).toContain('<p>desc</p>');
+  });
+
+  it('injects sub-model via _rest through a required fixture HTML file', () => {
+    // Same scenario but using a real file on disk (tabs fixture) to prove
+    // _rest flows correctly through require()-based calls too.
+    const hostSrc = fs.readFileSync(path.join(fixturesDir, 'tabs-host.html'), 'utf8');
+    const code = transpile(hostSrc, {
+      filename: path.join(fixturesDir, 'tabs-host.html'),
+    });
+
+    const htmlAwareRequire = (id: string) => {
+      if (id.endsWith('.html')) {
+        const resolved = path.resolve(fixturesDir, id);
+        const src = fs.readFileSync(resolved, 'utf8');
+        const transpiled = transpile(src, { filename: resolved });
+        const m: any = {};
+        new Function('module', transpiled)(m);
+        return m.exports;
+      }
+      return fixturesRequire(id);
+    };
+
+    const mod: any = {};
+    new Function('module', 'require', code)(mod, htmlAwareRequire);
+    const fn = Object.values(mod.exports)[0] as Function;
+
+    // model.tabsTemplate selects the file; the rest of model flows into the template
+    const html = fn({ model: { tabsTemplate: 'vertical' } });
+    expect(html).toContain('cmp-tabs--vertical');
+    expect(html).toContain('vertical');
+  });
+});
+

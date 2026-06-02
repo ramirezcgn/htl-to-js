@@ -220,7 +220,7 @@ function processElement(node: any, ctx: WalkerContext): string {
       const localFn = ctx.localTemplates[fn];
       if (localFn) {
         const extraParams = paramsStr ? `${paramsStr}, _includes` : '_includes';
-        callContent = `\${${localFn}?.({ ${extraParams} }) ?? ''}`;
+        callContent = `\${${localFn}?.({ ..._rest, ${extraParams} }) ?? ''}`;
       }
     } else {
       callObjName = fn.slice(0, dotIdx);
@@ -230,7 +230,7 @@ function processElement(node: any, ctx: WalkerContext): string {
         const jsFnName =
           'create' + methodName.charAt(0).toUpperCase() + methodName.slice(1);
         const extraParams = paramsStr ? `${paramsStr}, _includes` : '_includes';
-        callContent = `\${require('${filePath}').${jsFnName}?.({ ${extraParams} }) ?? ''}`;
+        callContent = `\${require('${filePath}').${jsFnName}?.({ ..._rest, ${extraParams} }) ?? ''}`;
       } else {
         const dynamicFilePath =
           dir.dynamicFileUse?.[callObjName] || ctx.dynamicFileUse[callObjName];
@@ -241,14 +241,14 @@ function processElement(node: any, ctx: WalkerContext): string {
           const requirePath = dynamicFilePath.startsWith('`')
             ? dynamicFilePath
             : `(() => { const _usePath = String(${dynamicFilePath} ?? ''); return _usePath.startsWith('/') || _usePath.startsWith('.') ? _usePath : './' + _usePath; })()`;
-          callContent = `\${require(${requirePath}).${jsFnName}?.({ ${extraParams} }) ?? ''}`;
+          callContent = `\${require(${requirePath}).${jsFnName}?.({ ..._rest, ${extraParams} }) ?? ''}`;
         } else {
           const localFn = ctx.localTemplates[methodName];
           if (localFn) {
             const extraParams = paramsStr
               ? `${paramsStr}, _includes`
               : '_includes';
-            callContent = `\${${localFn}?.({ ${extraParams} }) ?? ''}`;
+            callContent = `\${${localFn}?.({ ..._rest, ${extraParams} }) ?? ''}`;
           }
         }
       }
@@ -256,12 +256,12 @@ function processElement(node: any, ctx: WalkerContext): string {
 
     if (!callContent && !isStaticCallTarget) {
       const extraParams = paramsStr ? `${paramsStr}, _includes` : '_includes';
-      callContent = `\${${convertExpr(fn)}?.({ ${extraParams} }) ?? ''}`;
+      callContent = `\${${convertExpr(fn)}?.({ ..._rest, ${extraParams} }) ?? ''}`;
     }
 
     if (!callContent) {
       const extraParams = paramsStr ? `${paramsStr}, _includes` : '_includes';
-      callContent = `\${${fn}?.({ ${extraParams} }) ?? ''}`;
+      callContent = `\${${fn}?.({ ..._rest, ${extraParams} }) ?? ''}`;
     }
 
     if (node.name !== 'sly') {

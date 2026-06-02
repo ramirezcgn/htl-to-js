@@ -66,11 +66,8 @@ interface TemplateInfo {
 }
 
 type LegacyModelTransformFn = (varName: string) => string;
-type DirectModelTransformFn = (bindings: {
-  model: unknown;
-  _includes: unknown;
-  varName: string;
-}) => unknown;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type DirectModelTransformFn = (bindings: any) => any;
 type ModelTransformValue = string | LegacyModelTransformFn | DirectModelTransformFn;
 
 /**
@@ -610,6 +607,10 @@ function addUseDefaultRefs(
   }
 }
 
+function classKeyMatchesUseVal(classKey: string, useVal: string): boolean {
+  return useVal === classKey || useVal.endsWith('.' + classKey);
+}
+
 /**
  * Builds assignment lines that merge computed properties into model variables,
  * based on modelTransforms config.
@@ -622,7 +623,7 @@ function buildModelTransformDecls(
   const lines: string[] = [];
   for (const [varName, useVal] of Object.entries(uses)) {
     for (const [classKey, props] of Object.entries(modelTransforms)) {
-      if (String(useVal).includes(classKey)) {
+      if (classKeyMatchesUseVal(classKey, String(useVal))) {
         const resolve = (v: ModelTransformValue) =>
           resolveModelTransformValue(v, varName);
         const modelEntries = Object.entries(props).filter(
@@ -673,7 +674,14 @@ function resolveModelTransformValue(
 
   if (directExpr != null) return directExpr;
 
-  return (value as LegacyModelTransformFn)(varName);
+  const legacyResult = (value as LegacyModelTransformFn)(varName);
+  if (typeof legacyResult !== 'string') {
+    throw new TypeError(
+      `[htl-to-js] modelTransforms value for "${varName}" is not serializable. ` +
+      `Use a string expression or a function with recognized bindings: model, _includes, varName, or "${varName}".`
+    );
+  }
+  return legacyResult;
 }
 
 function shouldTreatZeroArgStringResultAsLegacy(result: string): boolean {
@@ -772,6 +780,19 @@ function parseDirectTransformBindings(
 
     if (/^(model|_includes|varName)$/.test(entry)) {
       bindings.set(entry, resolveDirectBindingValue(entry, varName));
+      continue;
+    }
+
+    // Accept the varName itself as a binding (e.g. ({ tabs }) when varName='tabs').
+    if (entry === varName) {
+      bindings.set(entry, varName);
+      continue;
+    }
+
+    // Accept an alias of varName (e.g. ({ tabs: t }) when varName='tabs').
+    const varNameAliasMatch = /^(\w+)\s*:\s*([A-Za-z_$][\w$]*)$/.exec(entry);
+    if (varNameAliasMatch?.[1] === varName) {
+      bindings.set(varNameAliasMatch[2], varName);
       continue;
     }
 

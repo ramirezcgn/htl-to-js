@@ -3119,6 +3119,120 @@ describe('transpile — modelTransforms _includes', () => {
 });
 
 // ---------------------------------------------------------------------------
+// modelTransforms — bug fixes (classKey matching, binding serialization, fallback guard)
+// ---------------------------------------------------------------------------
+
+describe('modelTransforms — classKey strict matching', () => {
+  it('does NOT apply a transform whose classKey is a substring of the class name', () => {
+    // "Tabs" must not match "TabsModel" — previously String.includes() caused this
+    const src = `<div data-sly-use.tabs="com.example.TabsModel">\${tabs.title}</div>`;
+    const code = transpile(src, {
+      filename: 'test.html',
+      modelTransforms: {
+        Tabs: { extraProp: "'from-tabs-transform'" },
+      },
+    });
+    const mod: any = {};
+    new Function('module', code)(mod);
+    const fn = Object.values(mod.exports)[0] as Function;
+    // The Tabs transform must NOT have run — extraProp should not be on tabs
+    const html = fn({ tabs: { title: 'Hello' } });
+    expect(html).toContain('Hello');
+    expect(html).not.toContain('from-tabs-transform');
+  });
+
+  it('applies a transform when classKey matches exactly the simple class name', () => {
+    const src = `<div data-sly-use.tabs="com.example.Tabs">\${tabs.extra}</div>`;
+    const code = transpile(src, {
+      filename: 'test.html',
+      modelTransforms: {
+        Tabs: { extra: "'injected'" },
+      },
+    });
+    const mod: any = {};
+    new Function('module', code)(mod);
+    const fn = Object.values(mod.exports)[0] as Function;
+    expect(fn({ tabs: {} })).toContain('injected');
+  });
+
+  it('applies a transform when classKey is the fully-qualified class name', () => {
+    const src = `<div data-sly-use.tabs="com.example.Tabs">\${tabs.extra}</div>`;
+    const code = transpile(src, {
+      filename: 'test.html',
+      modelTransforms: {
+        'com.example.Tabs': { extra: "'fqn-match'" },
+      },
+    });
+    const mod: any = {};
+    new Function('module', code)(mod);
+    const fn = Object.values(mod.exports)[0] as Function;
+    expect(fn({ tabs: {} })).toContain('fqn-match');
+  });
+});
+
+describe('modelTransforms — varName binding in _includes function', () => {
+  it('serializes ({ varName }) => ... correctly when binding name matches the use variable', () => {
+    // data-sly-use.tabs → varName='tabs'; user writes ({ tabs }) => ...
+    const src = `<div data-sly-use.tabs="com.example.Tabs"><sly data-sly-resource="\${'slot'}"></sly></div>`;
+    const code = transpile(src, {
+      filename: 'test.html',
+      modelTransforms: {
+        Tabs: {
+          _includes: ({ tabs }: Record<string, any>) => ({
+            slot: () => `<p>${tabs.label}</p>`,
+          }),
+        },
+      },
+    });
+    // Must NOT produce [object Object] in generated code
+    expect(code).not.toContain('[object Object]');
+    const mod: any = {};
+    new Function('module', code)(mod);
+    const fn = Object.values(mod.exports)[0] as Function;
+    expect(fn({ tabs: { label: 'Tab label' } })).toContain('<p>Tab label</p>');
+  });
+
+  it('serializes ({ tabs: t }) => ... alias binding correctly', () => {
+    const src = `<div data-sly-use.tabs="com.example.Tabs"><sly data-sly-resource="\${'slot'}"></sly></div>`;
+    const code = transpile(src, {
+      filename: 'test.html',
+      modelTransforms: {
+        Tabs: {
+          _includes: ({ tabs: t }: Record<string, any>) => ({
+            slot: () => `<span>${t.name}</span>`,
+          }),
+        },
+      },
+    });
+    expect(code).not.toContain('[object Object]');
+    const mod: any = {};
+    new Function('module', code)(mod);
+    const fn = Object.values(mod.exports)[0] as Function;
+    expect(fn({ tabs: { name: 'My Tab' } })).toContain('<span>My Tab</span>');
+  });
+});
+
+describe('modelTransforms — non-serializable fallback throws TypeError', () => {
+  it('throws TypeError when the legacy fallback returns a non-string', () => {
+    // A function with an unrecognized binding name that returns an object at call-time
+    // should throw instead of silently producing [object Object].
+    const src = `<div data-sly-use.tabs="com.example.Tabs"><sly data-sly-resource="\${'s'}"></sly></div>`;
+    expect(() =>
+      transpile(src, {
+        filename: 'test.html',
+        modelTransforms: {
+          Tabs: {
+            // 'unknownBinding' is not recognized → serialization fails → fallback calls fn('tabs')
+            // fn('tabs') returns an object → should throw
+            _includes: ({ unknownBinding }: any) => ({ s: () => String(unknownBinding) }),
+          },
+        },
+      })
+    ).toThrow(TypeError);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // @ urlencode context
 // ---------------------------------------------------------------------------
 

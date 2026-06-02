@@ -272,7 +272,16 @@ export function parseDirectives(
         directives.use[name] = val;
         directives.useDefaults[name] = buildDynamicJsUseDefault(convertInterpolatedString(trimmed));
       } else if (trimmed.includes('${') && trimmed.endsWith('.html')) {
-        directives.dynamicFileUse[name] = `__resolveUsePath(${convertInterpolatedString(trimmed)})`;
+        const converted = convertInterpolatedString(trimmed);
+        if (trimmed.startsWith('/')) {
+          directives.dynamicFileUse[name] = `__resolveUsePath(${converted})`;
+        } else {
+          const normalized =
+            !trimmed.startsWith('./') && !trimmed.startsWith('.')
+              ? converted.replace(/^`/, '`./')
+              : converted;
+          directives.dynamicFileUse[name] = normalized;
+        }
       } else {
         directives.use[name] = val;
         const def = parseUseDefault(trimmed);

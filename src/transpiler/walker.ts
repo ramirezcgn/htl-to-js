@@ -238,7 +238,9 @@ function processElement(node: any, ctx: WalkerContext): string {
           const jsFnName =
             'create' + methodName.charAt(0).toUpperCase() + methodName.slice(1);
           const extraParams = paramsStr ? `${paramsStr}, _includes` : '_includes';
-          const requirePath = `(() => { const _usePath = String(${dynamicFilePath} ?? ''); return _usePath.startsWith('/') || _usePath.startsWith('.') ? _usePath : './' + _usePath; })()`;
+          const requirePath = dynamicFilePath.startsWith('`')
+            ? dynamicFilePath
+            : `(() => { const _usePath = String(${dynamicFilePath} ?? ''); return _usePath.startsWith('/') || _usePath.startsWith('.') ? _usePath : './' + _usePath; })()`;
           callContent = `\${require(${requirePath}).${jsFnName}?.({ ${extraParams} }) ?? ''}`;
         } else {
           const localFn = ctx.localTemplates[methodName];

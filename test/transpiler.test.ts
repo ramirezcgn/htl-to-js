@@ -2972,7 +2972,8 @@ describe('transpile — fileOverrides', () => {
       requests.push(request);
       if (request === './tabs-vertical.html') {
         return {
-          createTabs: ({ model }: { model: any }) => `<div>${model.tabsTemplate}</div>`,
+          createTabs: ({ model }: { model: any }) =>
+            `<div>${model.tabsTemplate}</div>`,
         };
       }
       throw new Error(`Unexpected require: ${request}`);
@@ -2985,6 +2986,36 @@ describe('transpile — fileOverrides', () => {
 
     expect(requests).toContain('./tabs-vertical.html');
     expect(html).toContain('<div>vertical</div>');
+  });
+
+  it('resolves interpolated html use paths from fixture files', () => {
+    const src = fs.readFileSync(path.join(fixturesDir, 'tabs-host.html'), 'utf8');
+    const code = transpile(src, {
+      filename: path.join(fixturesDir, 'tabs-host.html'),
+    });
+    expect(code).toContain('require(');
+    expect(code).toContain('tabs-');
+    expect(code).toContain('tabsTemplate');
+
+    const htmlAwareRequire = (id: string) => {
+      if (id.endsWith('.html')) {
+        const resolvedPath = path.resolve(fixturesDir, id);
+        const htmlSrc = fs.readFileSync(resolvedPath, 'utf8');
+        const transpiled = transpile(htmlSrc, { filename: resolvedPath });
+        const m: any = {};
+        new Function('module', transpiled)(m);
+        return m.exports;
+      }
+      return fixturesRequire(id);
+    };
+
+    const mod: any = {};
+    new Function('module', 'require', code)(mod, htmlAwareRequire);
+    const fn = Object.values(mod.exports)[0] as Function;
+    const html = fn({ model: { tabsTemplate: 'vertical' } });
+
+    expect(html).toContain('cmp-tabs--vertical');
+    expect(html).toContain('vertical');
   });
 
   it('htl content with data-sly-resource triggers resourceWrappers', () => {

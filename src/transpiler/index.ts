@@ -157,6 +157,9 @@ export function transpile(
   const helpers = [
     `const _htlAttr = (v) => v == null ? '' : (Array.isArray(v) ? v.map(x => x == null ? '' : String(x).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')).join(',') : typeof v === 'object' ? JSON.stringify(v).replace(/"/g, '&quot;') : String(v).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'));`,
     `const _htlText = (v) => v == null ? '' : String(v).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');`,
+    `const _htlCtx = (v, ctx) => { if (ctx === 'html' || ctx === 'unsafe') return String(v ?? ''); if (ctx === 'number') { const n = Number(v); return (!v && v !== 0) || isNaN(n) ? '' : String(n); } if (ctx === 'uri') { try { return encodeURI(String(v ?? '')).replace(/"/g, '&quot;'); } catch { return ''; } } return _htlText(v); };`,
+    `const _htlCtxAttr = (v, ctx) => { if (ctx === 'html' || ctx === 'unsafe') return String(v ?? ''); if (ctx === 'uri') return _htlUri(v); if (ctx === 'number') return _htlNum(v) ?? ''; return _htlAttr(v); };`,
+    `const _htlDynAttrCtx = (name, v, ctx) => { if (ctx === 'html' || ctx === 'unsafe') { if (v == null || v === false) return ''; if (v === true) return ' ' + name; return ' ' + name + '="' + String(v) + '"'; } return _htlDynAttr(name, ctx === 'uri' ? _htlUri(v) : ctx === 'number' ? _htlNum(v) : v); };`,
     `const _htlUri = (v) => { if (v == null) return ''; try { return encodeURI(String(v)).replace(/"/g, '&quot;'); } catch { return ''; } };`,
     `const _htlIn = (l, r) => { if (typeof r === 'string') return r.includes(String(l)); if (Array.isArray(r)) return r.includes(l); return r != null && (l in r); };`,
     `const _htlNum = (v) => { if (v == null || typeof v === 'boolean' || Array.isArray(v)) return null; const n = Number(v); return isNaN(n) ? null : String(n); };`,

@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { convertExpr, convertAttrValue, escapeLiteral, extractExprs, extractContext } from './expr';
+import { convertExpr, convertAttrValue, escapeLiteral, extractExprs, extractContext, extractDynamicContext } from './expr';
 
 export interface SetDecl {
   name: string;
@@ -26,6 +26,7 @@ export interface Directives {
   sets: SetDecl[];
   text: string | null;
   textContext: string | null;
+  textDynamicContext: string | null;
   resource: { path: string; params: Record<string, string> } | null;
   resourceType: string | null;
   template: { name: string; params: string[] } | null;
@@ -247,6 +248,7 @@ export function parseDirectives(
     sets: [],
     text: null,
     textContext: null,
+    textDynamicContext: null,
     resource: null,
     resourceType: null,
     template: null,
@@ -368,6 +370,9 @@ export function parseDirectives(
     if (key === 'data-sly-text') {
       directives.text = convertExpr(val);
       directives.textContext = extractContext(val);
+      directives.textDynamicContext = directives.textContext == null
+        ? extractDynamicContext(val)
+        : null;
       directives.skip.add(key);
       continue;
     }

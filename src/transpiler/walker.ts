@@ -1,6 +1,6 @@
 import { parseDirectives } from './directives';
 import type { Directives, SetDecl } from './directives';
-import { convertExpr, convertAttrValue, convertTextContent, extractExprs, extractContext } from './expr';
+import { convertExpr, convertAttrValue, convertTextContent, extractExprs, extractContext, extractDynamicContext } from './expr';
 
 const URI_ATTRS = new Set([
   'action', 'cite', 'data', 'formaction', 'href', 'manifest', 'poster', 'src',
@@ -395,7 +395,9 @@ function buildInnerContent(
   }
   if (dir.text) {
     const isRaw = dir.textContext === 'html' || dir.textContext === 'unsafe';
-    return isRaw ? `\${${dir.text} ?? ''}` : `\${_htlText(${dir.text})}`;
+    if (isRaw) return `\${${dir.text} ?? ''}`;
+    if (dir.textDynamicContext) return `\${_htlCtx(${dir.text}, ${dir.textDynamicContext})}`;
+    return `\${_htlText(${dir.text})}`;
   }
   return walkNodes(node.children, ctx);
 }
@@ -421,6 +423,10 @@ function buildAttrs(
         }
         if (ctx === 'number') {
           return `\${_htlDynAttr('${key}', _htlNum(${converted}))}`;
+        }
+        const dynCtx = ctx == null ? extractDynamicContext(exprs[0].expr) : null;
+        if (dynCtx != null) {
+          return `\${_htlDynAttrCtx('${key}', ${converted}, ${dynCtx})}`;
         }
         return `\${_htlDynAttr('${key}', ${converted})}`;
       }

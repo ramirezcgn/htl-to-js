@@ -210,11 +210,37 @@ export function extractExprs(str: string): ExprMatch[] {
 
 /**
  * Extracts the @ context='...' value from a raw HTL expression string.
- * Returns the lowercase context name, or null if not specified.
+ * Returns the lowercase context name, or null if not specified or if the
+ * context is a dynamic (non-quoted) expression.
  */
 export function extractContext(raw: string): string | null {
   const m = /\bcontext\s*=\s*['"](\w+)['"]/.exec(raw);
   return m ? m[1].toLowerCase() : null;
+}
+
+/**
+ * Extracts a *dynamic* context expression from a raw HTL expression — i.e. when
+ * the context value is not a quoted string literal but a JS expression such as
+ * `model.isRich ? 'html' : 'text'`.
+ *
+ * Returns the converted JS expression string, or null when the context is absent
+ * or already handled as a static string by extractContext.
+ */
+export function extractDynamicContext(raw: string): string | null {
+  let inner = raw.trim();
+  if (inner.startsWith('${') && inner.endsWith('}')) {
+    inner = inner.slice(2, -1).trim();
+  }
+  const [, optStr] = splitAtAtSign(inner);
+  if (!optStr) return null;
+  // Static context is handled by extractContext — don't duplicate here.
+  if (/\bcontext\s*=\s*['"]/.test(optStr)) return null;
+  // Extract the context value, which may contain nested quotes (e.g. ternaries).
+  const m = /\bcontext\s*=\s*((?:'[^']*'|"[^"]*"|[^,}])+)/.exec(optStr);
+  if (!m) return null;
+  const ctxRaw = m[1].trim();
+  if (!ctxRaw) return null;
+  return convertExpr(ctxRaw);
 }
 
 /**
@@ -237,7 +263,12 @@ export function convertAttrValue(value: string): string {
     } else if (ctx === 'number') {
       parts.push(`\${_htlNum(${converted}) ?? ''}`);
     } else {
-      parts.push(`\${_htlAttr(${converted})}`);
+      const dynCtx = extractDynamicContext(expr);
+      if (dynCtx == null) {
+        parts.push(`\${_htlAttr(${converted})}`);
+      } else {
+        parts.push(`\${_htlCtxAttr(${converted}, ${dynCtx})}`);
+      }
     }
     last = end;
   }
@@ -258,9 +289,16 @@ export function convertTextContent(text: string): string {
     const converted = convertExpr(expr);
     if (ctx === 'html' || ctx === 'unsafe') {
       const safe = /\|\||&&/.test(converted) ? `(${converted})` : converted;
-      parts.push(`\${${safe} ?? ''}`);    } else if (ctx === 'number') {
-      parts.push(`\${_htlNum(${converted}) ?? ''}`);    } else {
-      parts.push(`\${_htlText(${converted})}`);
+      parts.push(`\${${safe} ?? ''}`);
+    } else if (ctx === 'number') {
+      parts.push(`\${_htlNum(${converted}) ?? ''}`);
+    } else {
+      const dynCtx = extractDynamicContext(expr);
+      if (dynCtx == null) {
+        parts.push(`\${_htlText(${converted})}`);
+      } else {
+        parts.push(`\${_htlCtx(${converted}, ${dynCtx})}`);
+      }
     }
     last = end;
   }

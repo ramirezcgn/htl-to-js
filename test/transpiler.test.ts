@@ -4488,3 +4488,128 @@ describe('transpile — _rest pass-through for sub-model injection', () => {
   });
 });
 
+// ---------------------------------------------------------------------------
+// dynamic @ context expression
+// ---------------------------------------------------------------------------
+
+describe('transpile — dynamic @ context expression in text node', () => {
+  it('renders raw HTML when dynamic context evaluates to "html"', () => {
+    const src = `<div>\${text @ context = model.isRich ? 'html' : 'text'}</div>`;
+    const code = transpile(src, { filename: 'test.html' });
+    const mod: any = {};
+    new Function('module', code)(mod);
+    const fn = Object.values(mod.exports)[0] as Function;
+
+    const html = fn({ text: '<b>Bold</b>', model: { isRich: true } });
+    expect(html).toContain('<b>Bold</b>');
+    expect(html).not.toContain('&lt;b&gt;');
+  });
+
+  it('escapes HTML when dynamic context evaluates to "text"', () => {
+    const src = `<div>\${text @ context = model.isRich ? 'html' : 'text'}</div>`;
+    const code = transpile(src, { filename: 'test.html' });
+    const mod: any = {};
+    new Function('module', code)(mod);
+    const fn = Object.values(mod.exports)[0] as Function;
+
+    const html = fn({ text: '<b>Bold</b>', model: { isRich: false } });
+    expect(html).not.toContain('<b>Bold</b>');
+    expect(html).toContain('&lt;b&gt;');
+  });
+
+  it('renders raw HTML for dynamic context = "unsafe"', () => {
+    const src = `<div>\${text @ context = flag ? 'unsafe' : 'text'}</div>`;
+    const code = transpile(src, { filename: 'test.html' });
+    const mod: any = {};
+    new Function('module', code)(mod);
+    const fn = Object.values(mod.exports)[0] as Function;
+
+    expect(fn({ text: '<em>x</em>', flag: true })).toContain('<em>x</em>');
+    expect(fn({ text: '<em>x</em>', flag: false })).toContain('&lt;em&gt;');
+  });
+
+  it('emits _htlCtx in the generated code', () => {
+    const src = `<p>\${text @ context = model.rich ? 'html' : 'text'}</p>`;
+    const code = transpile(src, { filename: 'test.html' });
+    expect(code).toContain('_htlCtx(');
+  });
+});
+
+describe('transpile — dynamic @ context in data-sly-text', () => {
+  it('renders raw HTML when dynamic context evaluates to "html"', () => {
+    const src = `<div data-sly-text="\${text @ context = model.isRich ? 'html' : 'text'}">fallback</div>`;
+    const code = transpile(src, { filename: 'test.html' });
+    const mod: any = {};
+    new Function('module', code)(mod);
+    const fn = Object.values(mod.exports)[0] as Function;
+
+    const html = fn({ text: '<strong>Rich</strong>', model: { isRich: true } });
+    expect(html).toContain('<strong>Rich</strong>');
+    expect(html).not.toContain('fallback');
+  });
+
+  it('escapes HTML when dynamic context evaluates to "text"', () => {
+    const src = `<div data-sly-text="\${text @ context = model.isRich ? 'html' : 'text'}">fallback</div>`;
+    const code = transpile(src, { filename: 'test.html' });
+    const mod: any = {};
+    new Function('module', code)(mod);
+    const fn = Object.values(mod.exports)[0] as Function;
+
+    const html = fn({ text: '<strong>Rich</strong>', model: { isRich: false } });
+    expect(html).toContain('&lt;strong&gt;');
+    expect(html).not.toContain('<strong>');
+  });
+});
+
+describe('transpile — dynamic @ context expression in attributes', () => {
+  it('omits HTML-escaping in a pure-expression attribute when context = "unsafe"', () => {
+    // data-json="${model.json @ context = flag ? 'unsafe' : 'text'}"
+    const src = `<div data-json="\${model.json @ context = flag ? 'unsafe' : 'text'}">x</div>`;
+    const code = transpile(src, { filename: 'test.html' });
+    const mod: any = {};
+    new Function('module', code)(mod);
+    const fn = Object.values(mod.exports)[0] as Function;
+
+    // flag=true → unsafe → raw value, no escaping
+    expect(fn({ model: { json: '{"a":1}' }, flag: true })).toContain('data-json="{"a":1}"');
+    // flag=false → text/default → HTML-escaped
+    expect(fn({ model: { json: '{"a":1}' }, flag: false })).toContain('&quot;');
+  });
+
+  it('omits attribute when value is null even with dynamic context', () => {
+    const src = `<div title="\${model.val @ context = flag ? 'unsafe' : 'text'}">x</div>`;
+    const code = transpile(src, { filename: 'test.html' });
+    const mod: any = {};
+    new Function('module', code)(mod);
+    const fn = Object.values(mod.exports)[0] as Function;
+
+    expect(fn({ model: { val: null }, flag: true })).not.toContain('title=');
+  });
+
+  it('handles dynamic context in a mixed attribute value', () => {
+    // class="base ${cls @ context = flag ? 'unsafe' : 'text'}"
+    const src = `<div class="base \${cls @ context = flag ? 'unsafe' : 'text'}">x</div>`;
+    const code = transpile(src, { filename: 'test.html' });
+    const mod: any = {};
+    new Function('module', code)(mod);
+    const fn = Object.values(mod.exports)[0] as Function;
+
+    // flag=true → unsafe → no escaping of the cls value
+    expect(fn({ cls: '<b>', flag: true })).toContain('class="base <b>"');
+    // flag=false → default → escaped
+    expect(fn({ cls: '<b>', flag: false })).toContain('&lt;b&gt;');
+  });
+
+  it('emits _htlDynAttrCtx for pure-expression attribute with dynamic context', () => {
+    const src = `<div title="\${model.val @ context = model.raw ? 'unsafe' : 'text'}">x</div>`;
+    const code = transpile(src, { filename: 'test.html' });
+    expect(code).toContain('_htlDynAttrCtx(');
+  });
+
+  it('emits _htlCtxAttr for mixed attribute value with dynamic context', () => {
+    const src = `<div class="prefix \${model.val @ context = model.raw ? 'unsafe' : 'text'}">x</div>`;
+    const code = transpile(src, { filename: 'test.html' });
+    expect(code).toContain('_htlCtxAttr(');
+  });
+});
+

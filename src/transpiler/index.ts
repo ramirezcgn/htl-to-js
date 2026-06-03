@@ -534,10 +534,12 @@ function buildFunctionBody(
     const contentSource = hasContentParam
       ? '(typeof content === "function" || (content != null && typeof content === "object" && !Array.isArray(content) && Object.keys(content).length > 0)) ? content : _rest.content'
       : '_rest.content';
+    const hasModelParam = /\bmodel\s*=/.test(paramStr);
+    const contentCallArg = hasModelParam ? '{ model, ..._rest }' : '_rest';
     lines.push(
       `  const _contentArg = ${contentSource};`,
       '  if (_contentArg != null) {',
-      `    const _contentValue = typeof _contentArg === 'function' ? _contentArg({ model, ..._rest }) : _contentArg;`,
+      `    const _contentValue = typeof _contentArg === 'function' ? _contentArg(${contentCallArg}) : _contentArg;`,
       `    if (_contentValue != null && typeof _contentValue === 'object' && !Array.isArray(_contentValue)) {`,
       '      _includes = Object.assign(_contentValue, _includes);',
       `    }${slot ? ' else {' : ''}`,

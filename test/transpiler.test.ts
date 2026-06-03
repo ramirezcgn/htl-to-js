@@ -3390,6 +3390,22 @@ describe('transpile — content shorthand parameter', () => {
     expect(html).toContain('<li>Item B</li>');
   });
 
+  it('content function works when "model" is not a named param (use var has a different name)', () => {
+    // Template binds to 'nav' not 'model'. model is never referenced → not in paramStr.
+    // _contentArg must be called with _rest (which already carries any caller-passed model)
+    // rather than { model, ..._rest } (which would throw ReferenceError).
+    const src = `<div data-sly-use.nav="com.example.Nav"><sly data-sly-resource="\${'slot'}"></sly></div>`;
+    const code = transpile(src, { filename: 'test.html' });
+    // 'model' must NOT be in the param list
+    expect(code).not.toMatch(/\bmodel\s*=/);
+    const mod: any = {};
+    new Function('module', code)(mod);
+    const fn = Object.values(mod.exports)[0] as Function;
+
+    const html = fn({ content: () => '<p>no-model</p>' });
+    expect(html).toContain('<p>no-model</p>');
+  });
+
   it('other _rest props still flow to child data-sly-call', () => {
     const src = `
       <template data-sly-template.outer="\${@ item}">

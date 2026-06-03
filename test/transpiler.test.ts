@@ -3368,6 +3368,28 @@ describe('transpile — content shorthand parameter', () => {
     expect(html).toContain('<button>Open</button>');
   });
 
+  it('content returning object spreads into _includes even when slots are dynamic (no static slot)', () => {
+    // navpanel / navgroup pattern: data-sly-resource="${path}" — no static slot name visible.
+    // content() must still spread its object result into _includes.
+    const src = `<div data-sly-use.model="com.example.NavPanel">
+  <sly data-sly-repeat.item="\${model.items}" data-sly-resource="\${item.path}"></sly>
+</div>`;
+    const code = transpile(src, { filename: 'test.html' });
+    const mod: any = {};
+    new Function('module', code)(mod);
+    const fn = Object.values(mod.exports)[0] as Function;
+
+    const html = fn({
+      model: { items: [{ path: 'nav-a' }, { path: 'nav-b' }] },
+      content: () => ({
+        'nav-a': () => '<li>Item A</li>',
+        'nav-b': () => '<li>Item B</li>',
+      }),
+    });
+    expect(html).toContain('<li>Item A</li>');
+    expect(html).toContain('<li>Item B</li>');
+  });
+
   it('other _rest props still flow to child data-sly-call', () => {
     const src = `
       <template data-sly-template.outer="\${@ item}">

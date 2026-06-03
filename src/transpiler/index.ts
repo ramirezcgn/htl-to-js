@@ -530,18 +530,20 @@ function buildFunctionBody(
   const lines = [`const ${fnName} = (${paramStr}) => {`];
   if (paramStr.includes('_includes')) {
     const slot = findContentSlot(body);
+    lines.push(
+      '  if (_rest.content != null) {',
+      `    const _contentValue = typeof _rest.content === 'function' ? _rest.content({ model, ..._rest }) : _rest.content;`,
+      `    if (_contentValue != null && typeof _contentValue === 'object' && !Array.isArray(_contentValue)) {`,
+      '      _includes = Object.assign(_contentValue, _includes);',
+      `    }${slot ? ` else {` : ''}`,
+    );
     if (slot) {
       lines.push(
-        '  if (_rest.content != null) {',
-        `    const _contentValue = typeof _rest.content === 'function' ? _rest.content({ model, ..._rest }) : _rest.content;`,
-        `    if (_contentValue != null && typeof _contentValue === 'object' && !Array.isArray(_contentValue)) {`,
-        '      _includes = Object.assign(_contentValue, _includes);',
-        '    } else {',
         `      _includes = Object.assign({ '${slot}': _contentValue }, _includes);`,
         '    }',
-        '  }',
       );
     }
+    lines.push('  }');
   }
   if (transformDecls) lines.push(transformDecls);
   if (setDecls) lines.push(setDecls);

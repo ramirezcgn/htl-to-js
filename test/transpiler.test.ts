@@ -3406,6 +3406,68 @@ describe('transpile — content shorthand parameter', () => {
     expect(html).toContain('<p>no-model</p>');
   });
 
+  it('data-sly-use.content model is NOT treated as the escape hatch', () => {
+    // When 'content' is a data-sly-use binding, it is a model variable — its value
+    // must never be spread into _includes or used as a content function.
+    const src = `<div data-sly-use.content="com.example.ContentModel">
+  <p>\${content.title}</p>
+  <sly data-sly-resource="\${'slot'}"></sly>
+</div>`;
+    const code = transpile(src, { filename: 'test.html' });
+    const mod: any = {};
+    new Function('module', code)(mod);
+    const fn = Object.values(mod.exports)[0] as Function;
+
+    // Passing a populated model object must NOT trigger _includes spreading
+    const html = fn({ content: { title: 'Hello', id: '123' }, _includes: { slot: () => '<span>ok</span>' } });
+    expect(html).toContain('<p>Hello</p>');
+    expect(html).toContain('<span>ok</span>');
+
+    // Without explicit _includes, slot must render empty (not spread the model)
+    const html2 = fn({ content: { title: 'World', id: '456' } });
+    expect(html2).toContain('<p>World</p>');
+    expect(html2).toBe('<div>\n  <p>World</p>\n  \n</div>');
+  });
+
+  it('data-sly-set.content local var is NOT treated as the escape hatch', () => {
+    // data-sly-set.content defines a local variable — must not activate the escape hatch
+    const src = `<div>
+  <sly data-sly-set.content="\${model.tag}"></sly>
+  <p>\${content}</p>
+  <sly data-sly-resource="\${'slot'}"></sly>
+</div>`;
+    const code = transpile(src, { filename: 'test.html' });
+    const mod: any = {};
+    new Function('module', code)(mod);
+    const fn = Object.values(mod.exports)[0] as Function;
+
+    // Passing a populated object as _rest must NOT be spread into _includes
+    const html = fn({ model: { tag: 'article' }, _includes: { slot: () => '<span>child</span>' } });
+    expect(html).toContain('<p>article</p>');
+    expect(html).toContain('<span>child</span>');
+
+    // Without explicit _includes the slot is empty; content local var still works
+    const html2 = fn({ model: { tag: 'section' } });
+    expect(html2).toContain('<p>section</p>');
+    expect(html2).not.toContain('<span>');
+  });
+
+  it('data-sly-test.content local var is NOT treated as the escape hatch', () => {
+    const src = `<div>
+  <sly data-sly-test.content="\${model.visible}"></sly>
+  <p data-sly-test="\${content}">visible</p>
+  <sly data-sly-resource="\${'slot'}"></sly>
+</div>`;
+    const code = transpile(src, { filename: 'test.html' });
+    const mod: any = {};
+    new Function('module', code)(mod);
+    const fn = Object.values(mod.exports)[0] as Function;
+
+    const html = fn({ model: { visible: true }, _includes: { slot: () => '<span>child</span>' } });
+    expect(html).toContain('visible');
+    expect(html).toContain('<span>child</span>');
+  });
+
   it('other _rest props still flow to child data-sly-call', () => {
     const src = `
       <template data-sly-template.outer="\${@ item}">

@@ -401,7 +401,8 @@ function transpileNamedTemplates(
       }))
     );
     const transformDecls = buildModelTransformDecls(ctx.uses, modelTransforms);
-    return buildFunctionBody(fnName, paramStr, setDecls, body, transformDecls);
+    const contentIsEscapeHatch = ctx.refs.has('content') && !('content' in ctx.uses) && !('content' in ctx.jsFileUse) && !ctx.definedVars.has('content');
+    return buildFunctionBody(fnName, paramStr, setDecls, body, transformDecls, contentIsEscapeHatch);
   });
   const exportLine = format === 'esm'
     ? `export { ${fnNames.join(', ')} };`
@@ -476,6 +477,7 @@ function transpileSingleTemplate(
 
   const transformDecls = buildModelTransformDecls(ctx.uses, modelTransforms);
   const paramStr = buildParamStr(params);
+  const contentIsEscapeHatch = ctx.refs.has('content') && !('content' in ctx.uses) && !('content' in ctx.jsFileUse) && !ctx.definedVars.has('content');
   const exportLine = format === 'esm'
     ? `\nexport { ${fnName} };`
     : `\nmodule.exports = { ${fnName} };`;
@@ -484,7 +486,7 @@ function transpileSingleTemplate(
   return (
     prefix +
     dynamicUsePathDecl +
-    buildFunctionBody(fnName, paramStr, setDecls, body, transformDecls) +
+    buildFunctionBody(fnName, paramStr, setDecls, body, transformDecls, contentIsEscapeHatch) +
     exportLine
   );
 }
@@ -525,12 +527,13 @@ function buildFunctionBody(
   paramStr: string,
   setDecls: string,
   body: string,
-  transformDecls = ''
+  transformDecls = '',
+  contentParamIsEscapeHatch = false,
 ): string {
   const lines = [`const ${fnName} = (${paramStr}) => {`];
   if (paramStr.includes('_includes')) {
     const slot = findContentSlot(body);
-    const hasContentParam = /\bcontent\s*=/.test(paramStr);
+    const hasContentParam = contentParamIsEscapeHatch;
     const contentSource = hasContentParam
       ? '(typeof content === "function" || (content != null && typeof content === "object" && !Array.isArray(content) && Object.keys(content).length > 0)) ? content : _rest.content'
       : '_rest.content';

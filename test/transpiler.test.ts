@@ -3498,23 +3498,72 @@ describe('modelTransforms — content binding', () => {
   });
 });
 
-describe('modelTransforms — non-serializable fallback throws TypeError', () => {
-  it('throws TypeError when the legacy fallback returns a non-string', () => {
-    // A function with an unrecognized binding name that returns an object at call-time
-    // should throw instead of silently producing [object Object].
+describe('modelTransforms — arbitrary _rest bindings', () => {
+  it('unknown identifier binding maps to _rest.name (accessible via story args)', () => {
+    // Any identifier not in the recognized set is treated as a _rest binding.
     const src = `<div data-sly-use.tabs="com.example.Tabs"><sly data-sly-resource="\${'s'}"></sly></div>`;
-    expect(() =>
-      transpile(src, {
-        filename: 'test.html',
-        modelTransforms: {
-          Tabs: {
-            // 'unknownBinding' is not recognized → serialization fails → fallback calls fn('tabs')
-            // fn('tabs') returns an object → should throw
-            _includes: ({ unknownBinding }: any) => ({ s: () => String(unknownBinding) }),
-          },
+    const code = transpile(src, {
+      filename: 'test.html',
+      modelTransforms: {
+        Tabs: {
+          _includes: ({ unknownBinding }: any) => ({ s: () => String(unknownBinding) }),
         },
-      })
-    ).toThrow(TypeError);
+      },
+    });
+    expect(code).toContain('_rest.unknownBinding');
+  });
+
+  it('({ fragment, content }) serializes fragment → _rest.fragment and content → _rest.content', () => {
+    const src = `<div data-sly-use.model="com.example.Lightbox">
+  <sly data-sly-resource="\${'resource'}"></sly>
+  <sly data-sly-resource="\${'lightbox-fragment'}"></sly>
+</div>`;
+    const code = transpile(src, {
+      filename: 'test.html',
+      modelTransforms: {
+        Lightbox: {
+          _includes: ({ fragment, content }: any) =>
+            typeof content === 'function' ? content({ fragment }) : {},
+        },
+      },
+    });
+    expect(code).toContain('_rest.fragment');
+    expect(code).toContain('_rest.content');
+
+    const mod: any = {};
+    new Function('module', code)(mod);
+    const fn = Object.values(mod.exports)[0] as Function;
+
+    const html = fn({
+      fragment: { localizedFragmentVariationPath: 'lightbox-fragment' },
+      content: ({ fragment }: any) => ({
+        resource: () => '<button>Open</button>',
+        [fragment.localizedFragmentVariationPath]: () => '<p>Fragment</p>',
+      }),
+    });
+    expect(html).toContain('<button>Open</button>');
+    expect(html).toContain('<p>Fragment</p>');
+  });
+
+  it('({ fragment: frag }) alias works and maps to _rest.fragment', () => {
+    const src = `<div data-sly-use.model="com.example.Lightbox"><sly data-sly-resource="\${'slot'}"></sly></div>`;
+    const code = transpile(src, {
+      filename: 'test.html',
+      modelTransforms: {
+        Lightbox: {
+          _includes: ({ fragment: frag }: any) => ({
+            slot: () => `<p>${frag?.name}</p>`,
+          }),
+        },
+      },
+    });
+    expect(code).toContain('_rest.fragment');
+
+    const mod: any = {};
+    new Function('module', code)(mod);
+    const fn = Object.values(mod.exports)[0] as Function;
+
+    expect(fn({ fragment: { name: 'hero' } })).toContain('<p>hero</p>');
   });
 });
 

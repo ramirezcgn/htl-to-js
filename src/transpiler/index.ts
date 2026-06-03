@@ -822,6 +822,19 @@ function parseDirectTransformBindings(
       continue;
     }
 
+    // Any other plain identifier is treated as a _rest binding (e.g. ({ fragment }) → _rest.fragment).
+    if (/^[A-Za-z_$][\w$]*$/.test(entry)) {
+      bindings.set(entry, `_rest.${entry}`);
+      continue;
+    }
+
+    // Any other aliased identifier is treated as a _rest binding (e.g. ({ fragment: frag }) → _rest.fragment).
+    const restAliasMatch = /^([A-Za-z_$][\w$]*)\s*:\s*([A-Za-z_$][\w$]*)$/.exec(entry);
+    if (restAliasMatch) {
+      bindings.set(restAliasMatch[2], `_rest.${restAliasMatch[1]}`);
+      continue;
+    }
+
     return null;
   }
 
@@ -841,9 +854,17 @@ function replaceDirectTransformBindings(
 ): string {
   let output = expression;
   for (const [localName, replacement] of bindings) {
-    output = output.replaceAll(
-      new RegExp(String.raw`\b${escapeRegExp(localName)}\b`, 'g'),
-      replacement,
+    if (localName === replacement) continue;
+    output = output.replace(
+      new RegExp(String.raw`(?<=[{,]\s*)${escapeRegExp(localName)}(?=\s*[,}])`, 'g'),
+      `${localName}: ${replacement}`,
+    );
+    output = output.replace(
+      new RegExp(
+        String.raw`(?<key>(?<=[{,]\s*)${escapeRegExp(localName)}(?=\s*:))|(?<ref>(?<!\.)\b${escapeRegExp(localName)}\b)`,
+        'g'
+      ),
+      (match, key) => (key === undefined ? replacement : match)
     );
   }
   return output;

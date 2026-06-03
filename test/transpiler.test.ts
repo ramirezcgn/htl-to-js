@@ -3339,7 +3339,7 @@ describe('transpile — content shorthand parameter', () => {
 
     const html = fn({
       model: { src: '/hero.jpg', caption: 'Hero' },
-      content: (model: { src: string; caption: string }) => ({
+      content: ({ model }: { model: { src: string; caption: string } }) => ({
         image: () => `<img src="${model.src}">`,
         caption: () => `<figcaption>${model.caption}</figcaption>`,
       }),
@@ -3348,6 +3348,24 @@ describe('transpile — content shorthand parameter', () => {
     expect(html).toContain('<img src="/hero.jpg">');
     expect(html).toContain('<figcaption>Hero</figcaption>');
     expect(html).not.toContain('[object Object]');
+  });
+
+  it('content function can destructure any arg from _rest', () => {
+    const src = `<div data-sly-use.model="com.example.Page"><sly data-sly-resource="\${'resource'}"></sly></div>`;
+    const code = transpile(src, { filename: 'test.html' });
+    const mod: any = {};
+    new Function('module', code)(mod);
+    const fn = Object.values(mod.exports)[0] as Function;
+
+    const html = fn({
+      fragment: { localizedPath: '/content/fragment/en' },
+      content: ({ fragment }: { fragment: { localizedPath: string } }) => ({
+        resource: () => '<button>Open</button>',
+        [fragment?.localizedPath]: () => '<p>Fragment content</p>',
+      }),
+    });
+
+    expect(html).toContain('<button>Open</button>');
   });
 
   it('other _rest props still flow to child data-sly-call', () => {

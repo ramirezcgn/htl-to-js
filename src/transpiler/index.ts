@@ -533,7 +533,7 @@ function buildFunctionBody(
     if (slot) {
       lines.push(
         '  if (_rest.content != null) {',
-        `    const _contentValue = typeof _rest.content === 'function' ? _rest.content(model) : _rest.content;`,
+        `    const _contentValue = typeof _rest.content === 'function' ? _rest.content({ model, ..._rest }) : _rest.content;`,
         `    if (_contentValue != null && typeof _contentValue === 'object' && !Array.isArray(_contentValue)) {`,
         '      _includes = Object.assign(_contentValue, _includes);',
         '    } else {',

@@ -530,12 +530,17 @@ function buildFunctionBody(
   const lines = [`const ${fnName} = (${paramStr}) => {`];
   if (paramStr.includes('_includes')) {
     const slot = findContentSlot(body);
+    const hasContentParam = /\bcontent\s*=/.test(paramStr);
+    const contentSource = hasContentParam
+      ? '(typeof content === "function" || (content != null && typeof content === "object" && !Array.isArray(content) && Object.keys(content).length > 0)) ? content : _rest.content'
+      : '_rest.content';
     lines.push(
-      '  if (_rest.content != null) {',
-      `    const _contentValue = typeof _rest.content === 'function' ? _rest.content({ model, ..._rest }) : _rest.content;`,
+      `  const _contentArg = ${contentSource};`,
+      '  if (_contentArg != null) {',
+      `    const _contentValue = typeof _contentArg === 'function' ? _contentArg({ model, ..._rest }) : _contentArg;`,
       `    if (_contentValue != null && typeof _contentValue === 'object' && !Array.isArray(_contentValue)) {`,
       '      _includes = Object.assign(_contentValue, _includes);',
-      `    }${slot ? ` else {` : ''}`,
+      `    }${slot ? ' else {' : ''}`,
     );
     if (slot) {
       lines.push(
@@ -846,7 +851,7 @@ function parseDirectTransformBindings(
 function resolveDirectBindingValue(bindingName: string, varName: string): string {
   if (bindingName === 'model') return varName;
   if (bindingName === '_includes') return '_includes';
-  if (bindingName === 'content') return '_rest.content';
+  if (bindingName === 'content') return '(typeof content === "function" ? content : _rest.content)';
   return JSON.stringify(varName);
 }
 

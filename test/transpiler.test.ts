@@ -3405,6 +3405,26 @@ describe('transpile — content shorthand parameter', () => {
     const html = mod.exports.createOuter({ item: 'hello', extra: 'x' });
     expect(html).toContain('<div>hello</div>');
   });
+
+  it('content arg still works when "content" is a named destructured param (data-sly-set.selector pattern)', () => {
+    // data-sly-set.selector="content.${request.requestPathInfo.selectorString}" — the
+    // "content." literal prefix in a mixed interpolated value causes addRootRefs to add
+    // 'content' to ctx.refs, promoting it to a named param with default {}.
+    // The caller's content: fn must still be picked up from that named param.
+    const src = `<div data-sly-use.model="com.example.Page">
+  <sly data-sly-set.selector="content.\${request.requestPathInfo.selectorString}"></sly>
+  <sly data-sly-resource="\${'par'}"></sly>
+</div>`;
+    const code = transpile(src, { filename: 'test.html' });
+    // 'content' must be a named destructured param
+    expect(code).toMatch(/\bcontent\s*=/);
+    const mod: any = {};
+    new Function('module', code)(mod);
+    const fn = Object.values(mod.exports)[0] as Function;
+
+    const html = fn({ content: () => '<p>body</p>' });
+    expect(html).toContain('<p>body</p>');
+  });
 });
 
 describe('modelTransforms — content binding (typeof check / the canonical use case)', () => {

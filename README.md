@@ -66,7 +66,9 @@ module.exports = {
 | Directive | Behavior |
 |---|---|
 | `data-sly-use.name="..."` | Becomes a function parameter |
+| `data-sly-use.name="tpl-${expr}.html"` | Interpolated path — `require(\`./tpl-${expr}.html\`)` so Webpack can statically analyze and bundle all matching files |
 | `data-sly-test="${cond}"` | Conditional rendering via ternary |
+| `data-sly-test` (no value) | Always hides the element (equivalent to `data-sly-test="${false}"`) |
 | `data-sly-test.varName="${cond}"` | Conditional + assigns result to variable |
 | `data-sly-repeat.item="${list}"` | Loop: repeats the **whole element** per item |
 | `data-sly-list.item="${list}"` | Loop: outer tag rendered once, **inner content** repeated |
@@ -91,6 +93,7 @@ Both `data-sly-repeat` and `data-sly-list` support bare forms (without `.varName
 | `${expr @ context='html'}` | `${expr}` (context options stripped) |
 | `${expr @ context='urlencode'}` | `${encodeURIComponent(expr ?? '')}` (URL-encodes the value) |
 | `${expr @ context='uri'}` on any attribute | `${_htlUri(expr ?? '')}` (URI-encodes the value) |
+| `${expr @ context='number'}` | `${_htlNum(expr) ?? ''}` — converts to a numeric string; `null`/booleans/arrays/`NaN` produce an empty string |
 | `${'string' @ i18n}` | `${_i18n?.['string'] ?? 'string'}` (dictionary lookup) |
 | `${list.size}` | `${list.length}` |
 | `${obj.jcr:title}` | `${obj?.['jcr:title']}` |
@@ -825,6 +828,39 @@ const modelTransforms = {
   'ColumnModel': {
     _includes: "Object.fromEntries((model.columns || []).map((col, i) => [col.path, () => (model._content || [])[i] || '']))",
   },
+};
+```
+
+**Special key `content`** — a shorthand for the `_rest.content` escape hatch. When a component receives a `content` prop (e.g. from a parent passing `content: () => ...`), the generated function automatically routes it into `_includes` using one of two strategies:
+
+- If `content` is a **function that returns a plain object**, its result is spread directly into `_includes` (useful when the function returns a full slot map).
+- Otherwise, `content` is assigned to the first slot defined in the template body (the first `data-sly-resource` or `data-sly-include` key, with `parsys`/`par`/`content`/`main` preferred).
+
+In either case, explicit keys already in `_includes` always take precedence.
+
+```js
+const modelTransforms = {
+  'ImageModel': {
+    // content receives the raw image HTML and forwards it to the 'image' slot
+    content: ({ model }) => (model) => ({ image: model.imageHtml }),
+  },
+};
+```
+
+You can also rely on the automatic routing without any `modelTransforms` entry — simply pass `content` in the story args:
+
+```js
+export const Default = {
+  args: {
+    // A function returning a slot map — spread into _includes
+    content: (model) => ({ image: `<img src="${model.src}">`, alt: model.alt }),
+
+    // A function returning a string — assigned to the first slot
+    content: () => '<img src="/hero.jpg">',
+
+    // A plain string — assigned to the first slot
+    content: '<img src="/hero.jpg">',
+  }
 };
 ```
 

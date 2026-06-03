@@ -531,7 +531,16 @@ function buildFunctionBody(
   if (paramStr.includes('_includes')) {
     const slot = findContentSlot(body);
     if (slot) {
-      lines.push(`  if (_rest.content != null) _includes = Object.assign({ '${slot}': _rest.content }, _includes);`);
+      lines.push(
+        '  if (_rest.content != null) {',
+        `    const _contentValue = typeof _rest.content === 'function' ? _rest.content(model) : _rest.content;`,
+        `    if (_contentValue != null && typeof _contentValue === 'object' && !Array.isArray(_contentValue)) {`,
+        '      _includes = Object.assign(_contentValue, _includes);',
+        '    } else {',
+        `      _includes = Object.assign({ '${slot}': _contentValue }, _includes);`,
+        '    }',
+        '  }',
+      );
     }
   }
   if (transformDecls) lines.push(transformDecls);

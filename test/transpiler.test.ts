@@ -3330,6 +3330,26 @@ describe('transpile — content shorthand parameter', () => {
     expect(fn({ content: '<p>str content</p>' })).toContain('<p>str content</p>');
   });
 
+  it('merges a content function result when it returns an includes map', () => {
+    const src = `<div data-sly-use.model="com.example.Page"><sly data-sly-resource="\${'image'}"></sly><sly data-sly-resource="\${'caption'}"></sly></div>`;
+    const code = transpile(src, { filename: 'test.html' });
+    const mod: any = {};
+    new Function('module', code)(mod);
+    const fn = Object.values(mod.exports)[0] as Function;
+
+    const html = fn({
+      model: { src: '/hero.jpg', caption: 'Hero' },
+      content: (model: { src: string; caption: string }) => ({
+        image: () => `<img src="${model.src}">`,
+        caption: () => `<figcaption>${model.caption}</figcaption>`,
+      }),
+    });
+
+    expect(html).toContain('<img src="/hero.jpg">');
+    expect(html).toContain('<figcaption>Hero</figcaption>');
+    expect(html).not.toContain('[object Object]');
+  });
+
   it('other _rest props still flow to child data-sly-call', () => {
     const src = `
       <template data-sly-template.outer="\${@ item}">

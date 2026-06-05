@@ -13,6 +13,10 @@ import {
   convertTextContent,
 } from '../src/transpiler/expr';
 
+function strFn(fn: Function): (...args: any[]) => string {
+  return (...args: any[]) => String(fn(...args));
+}
+
 // ---------------------------------------------------------------------------
 // expr.js unit tests
 // ---------------------------------------------------------------------------
@@ -182,7 +186,7 @@ describe('transpile — data-sly-use', () => {
     const code = transpile(src, { filename: 'test.html' });
     const mod: any = {};
     new Function('module', code)(mod);
-    const fn = Object.values(mod.exports)[0] as Function;
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
     const html = fn({ model: { title: 'Hello' } });
     expect(html).toContain('Hello');
   });
@@ -214,7 +218,7 @@ describe('transpile — data-sly-test', () => {
     const code = transpile(src, { filename: 'test.html' });
     const mod: any = {};
     new Function('module', code)(mod);
-    const fn = Object.values(mod.exports)[0] as Function;
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
     expect(fn({ model: { visible: true } })).toContain('visible');
   });
 
@@ -223,7 +227,7 @@ describe('transpile — data-sly-test', () => {
     const code = transpile(src, { filename: 'test.html' });
     const mod: any = {};
     new Function('module', code)(mod);
-    const fn = Object.values(mod.exports)[0] as Function;
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
     expect(fn({ model: { visible: false } })).not.toContain('visible');
   });
 
@@ -232,7 +236,7 @@ describe('transpile — data-sly-test', () => {
     const code = transpile(src, { filename: 'test.html' });
     const mod: any = {};
     new Function('module', code)(mod);
-    const fn = Object.values(mod.exports)[0] as Function;
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
     expect(fn({ model: { title: 'Hello' } })).toContain('<h1>Hello</h1>');
     expect(fn({ model: { title: '' } })).toBe('');
   });
@@ -244,7 +248,7 @@ describe('transpile — data-sly-repeat', () => {
     const code = transpile(src, { filename: 'test.html' });
     const mod: any = {};
     new Function('module', code)(mod);
-    const fn = Object.values(mod.exports)[0] as Function;
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
     const html = fn({ items: [{ name: 'A' }, { name: 'B' }] });
     expect(html).toContain('A');
     expect(html).toContain('B');
@@ -264,7 +268,7 @@ describe('transpile — data-sly-repeat', () => {
     const code = transpile(src, { filename: 'test.html' });
     const mod: any = {};
     new Function('module', code)(mod);
-    const fn = Object.values(mod.exports)[0] as Function;
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
     const html = fn({ items: ['a', null, 'b'] });
     expect(html).toContain('a');
     expect(html).toContain('b');
@@ -276,7 +280,7 @@ describe('transpile — data-sly-repeat', () => {
     const code = transpile(src, { filename: 'test.html' });
     const mod: any = {};
     new Function('module', code)(mod);
-    const fn = Object.values(mod.exports)[0] as Function;
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
     expect(fn({ items: [] })).toBe('');
   });
 });
@@ -287,7 +291,7 @@ describe('transpile — data-sly-element', () => {
     const code = transpile(src, { filename: 'test.html' });
     const mod: any = {};
     new Function('module', code)(mod);
-    const fn = Object.values(mod.exports)[0] as Function;
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
     const html = fn({ model: { headingLevel: 'h3', title: 'Title' } });
     expect(html).toContain('<h3');
     expect(html).toContain('</h3>');
@@ -298,7 +302,7 @@ describe('transpile — data-sly-element', () => {
     const code = transpile(src, { filename: 'test.html' });
     const mod: any = {};
     new Function('module', code)(mod);
-    const fn = Object.values(mod.exports)[0] as Function;
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
     const html = fn({ model: { headingLevel: '', title: 'Title' } });
     expect(html).toContain('<h3');
   });
@@ -310,7 +314,7 @@ describe('transpile — data-sly-unwrap', () => {
     const code = transpile(src, { filename: 'test.html' });
     const mod: any = {};
     new Function('module', code)(mod);
-    const fn = Object.values(mod.exports)[0] as Function;
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
 
     const withUrl = fn({ model: { url: '/page' } });
     expect(withUrl).toContain('<a');
@@ -326,7 +330,7 @@ describe('transpile — data-sly-unwrap', () => {
     const code = transpile(src, { filename: 'test.html' });
     const mod: any = {};
     new Function('module', code)(mod);
-    const fn = Object.values(mod.exports)[0] as Function;
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
     const html = fn();
     expect(html).toContain('<span>Link</span>');
     expect(html).not.toContain('<a');
@@ -352,7 +356,7 @@ describe('transpile — data-sly-set', () => {
     const code = transpile(src, { filename: 'test.html' });
     const mod: any = {};
     new Function('module', code)(mod);
-    const fn = Object.values(mod.exports)[0] as Function;
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
     const html = fn({
       model: { pathUrl: '/my-path', width: 50, title: 'Test' },
     });
@@ -430,7 +434,7 @@ describe('transpile — in operator', () => {
     const code = transpile(src, { filename: 'test.html' });
     const mod: any = {};
     new Function('module', code)(mod);
-    const fn = Object.values(mod.exports)[0] as Function;
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
 
     expect(() => fn({ item: { name: 'x' }, parent: {} })).not.toThrow();
     expect(fn({ item: { name: 'x' }, parent: {} })).not.toContain('expanded');
@@ -441,7 +445,7 @@ describe('transpile — in operator', () => {
     const code = transpile(src, { filename: 'test.html' });
     const mod: any = {};
     new Function('module', code)(mod);
-    const fn = Object.values(mod.exports)[0] as Function;
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
 
     expect(
       fn({
@@ -456,7 +460,7 @@ describe('transpile — in operator', () => {
     const code = transpile(src, { filename: 'test.html' });
     const mod: any = {};
     new Function('module', code)(mod);
-    const fn = Object.values(mod.exports)[0] as Function;
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
 
     expect(
       fn({
@@ -473,7 +477,7 @@ describe('transpile — in operator', () => {
     const code = transpile(src, { filename: 'test.html' });
     const mod: any = {};
     new Function('module', code)(mod);
-    const fn = Object.values(mod.exports)[0] as Function;
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
 
     expect(
       fn({ accordion: { items: [{ name: 'x' }], expandedItems: { x: true } } })
@@ -494,7 +498,7 @@ describe('transpile — _htlText XSS prevention in text nodes', () => {
     const code = transpile(src, { filename: 'test.html' });
     const mod: any = {};
     new Function('module', code)(mod);
-    const fn = Object.values(mod.exports)[0] as Function;
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
     const html = fn({ model: { description: '<script>alert(1)</script>' } });
     expect(html).not.toContain('<script>');
     expect(html).toContain('&lt;script&gt;');
@@ -505,7 +509,7 @@ describe('transpile — _htlText XSS prevention in text nodes', () => {
     const code = transpile(src, { filename: 'test.html' });
     const mod: any = {};
     new Function('module', code)(mod);
-    const fn = Object.values(mod.exports)[0] as Function;
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
     const html = fn({ model: { text: 'a & b' } });
     expect(html).toContain('a &amp; b');
   });
@@ -515,7 +519,7 @@ describe('transpile — _htlText XSS prevention in text nodes', () => {
     const code = transpile(src, { filename: 'test.html' });
     const mod: any = {};
     new Function('module', code)(mod);
-    const fn = Object.values(mod.exports)[0] as Function;
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
     const html = fn({ model: { richText: '<strong>Bold</strong>' } });
     expect(html).toContain('<strong>Bold</strong>');
   });
@@ -525,7 +529,7 @@ describe('transpile — _htlText XSS prevention in text nodes', () => {
     const code = transpile(src, { filename: 'test.html' });
     const mod: any = {};
     new Function('module', code)(mod);
-    const fn = Object.values(mod.exports)[0] as Function;
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
     const html = fn({ model: { richText: '<em>Italic</em>' } });
     expect(html).toContain('<em>Italic</em>');
     expect(html).not.toContain('fallback');
@@ -536,10 +540,75 @@ describe('transpile — _htlText XSS prevention in text nodes', () => {
     const code = transpile(src, { filename: 'test.html' });
     const mod: any = {};
     new Function('module', code)(mod);
-    const fn = Object.values(mod.exports)[0] as Function;
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
     const html = fn({ model: { text: '<b>XSS</b>' } });
     expect(html).not.toContain('<b>');
     expect(html).toContain('&lt;b&gt;');
+  });
+
+  it('JSON-encodes plain object in text node (not [object Object])', () => {
+    const src = `<p>\${model.item}</p>`;
+    const code = transpile(src, { filename: 'test.html' });
+    const mod: any = {};
+    new Function('module', code)(mod);
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
+    const html = fn({ model: { item: { a: 1, b: 3 } } });
+    expect(html).not.toContain('[object Object]');
+    expect(html).toContain('{"a":1,"b":3}');
+  });
+
+  it('JSON-encodes array of objects in text node', () => {
+    const src = `<p>\${model.items}</p>`;
+    const code = transpile(src, { filename: 'test.html' });
+    const mod: any = {};
+    new Function('module', code)(mod);
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
+    const html = fn({ model: { items: [{ a: 1 }, { a: 2 }] } });
+    expect(html).not.toContain('[object Object]');
+    // array items are comma-joined, each object JSON-encoded
+    expect(html).toContain('{"a":1},{"a":2}');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Object serialization in attribute and slot contexts
+// ---------------------------------------------------------------------------
+
+describe('transpile — object serialization', () => {
+  it('JSON-encodes array of objects in attribute (not [object Object])', () => {
+    const src = `<div data-slides="\${model.slides}"></div>`;
+    const code = transpile(src, { filename: 'test.html' });
+    const mod: any = {};
+    new Function('module', code)(mod);
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
+    const html = fn({ model: { slides: [{ title: 'A' }, { title: 'B' }] } });
+    expect(html).not.toContain('[object Object]');
+    expect(html).toContain('{&quot;title&quot;:&quot;A&quot;},{&quot;title&quot;:&quot;B&quot;}');
+  });
+
+  it('_arrJoin JSON-encodes plain objects passed as slot values', () => {
+    // If _includes[key] is a non-function plain object, _incSlot/_arrJoin should
+    // produce JSON rather than [object Object]
+    const src = `<sly data-sly-resource="\${'slot'}"></sly>`;
+    const code = transpile(src, { filename: 'test.html' });
+    const mod: any = {};
+    new Function('module', code)(mod);
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
+    // plain object (no toString) in _includes
+    const html = fn({ _includes: { slot: { html: '<p>ok</p>' } } });
+    expect(html).not.toContain('[object Object]');
+    expect(html).toContain('"html"');
+  });
+
+  it('_arrJoin calls toString() on enriched objects (custom toString)', () => {
+    const src = `<sly data-sly-resource="\${'slot'}"></sly>`;
+    const code = transpile(src, { filename: 'test.html' });
+    const mod: any = {};
+    new Function('module', code)(mod);
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
+    const html = fn({ _includes: { slot: { toString: () => '<p>enriched</p>', _class: 'foo' } } });
+    expect(html).toContain('<p>enriched</p>');
+    expect(html).not.toContain('_class');
   });
 });
 
@@ -553,7 +622,7 @@ describe('transpile — @ context=uri in attributes', () => {
     const code = transpile(src, { filename: 'test.html' });
     const mod: any = {};
     new Function('module', code)(mod);
-    const fn = Object.values(mod.exports)[0] as Function;
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
     const html = fn({ model: { url: '/path/with spaces/file.html' } });
     expect(html).toContain('/path/with%20spaces/file.html');
     expect(html).not.toContain('href="/path/with spaces/');
@@ -564,7 +633,7 @@ describe('transpile — @ context=uri in attributes', () => {
     const code = transpile(src, { filename: 'test.html' });
     const mod: any = {};
     new Function('module', code)(mod);
-    const fn = Object.values(mod.exports)[0] as Function;
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
     expect(fn({ model: { url: null } })).toContain('href=""');
   });
 
@@ -574,7 +643,7 @@ describe('transpile — @ context=uri in attributes', () => {
     expect(code).toContain('_htlUri(');
     const mod: any = {};
     new Function('module', code)(mod);
-    const fn = Object.values(mod.exports)[0] as Function;
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
     const html = fn({ model: { url: '/path/with spaces/file.html' } });
     expect(html).toContain('/path/with%20spaces/file.html');
   });
@@ -609,7 +678,7 @@ describe('transpile — @ context=unsafe in attributes', () => {
     const code = transpile(src, { filename: 'test.html' });
     const mod: any = {};
     new Function('module', code)(mod);
-    const fn = Object.values(mod.exports)[0] as Function;
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
     const html = fn({ model: { json: '{"key":"value"}' } });
     expect(html).toContain('data-json="{"key":"value"}"');
   });
@@ -625,7 +694,7 @@ describe('transpile — _htlAttr HTML escaping', () => {
     const code = transpile(src, { filename: 'test.html' });
     const mod: any = {};
     new Function('module', code)(mod);
-    const fn = Object.values(mod.exports)[0] as Function;
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
 
     const html = fn({ model: { value: '<script>alert(1)</script>' } });
     expect(html).not.toContain('<script>');
@@ -637,7 +706,7 @@ describe('transpile — _htlAttr HTML escaping', () => {
     const code = transpile(src, { filename: 'test.html' });
     const mod: any = {};
     new Function('module', code)(mod);
-    const fn = Object.values(mod.exports)[0] as Function;
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
 
     const html = fn({ model: { url: '/path?a=1&b=2' } });
     expect(html).toContain('&amp;b=2');
@@ -648,7 +717,7 @@ describe('transpile — _htlAttr HTML escaping', () => {
     const code = transpile(src, { filename: 'test.html' });
     const mod: any = {};
     new Function('module', code)(mod);
-    const fn = Object.values(mod.exports)[0] as Function;
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
 
     const html = fn({ model: { name: 'say "hello"' } });
     expect(html).toContain('&quot;');
@@ -666,7 +735,7 @@ describe('transpile — data-sly-attribute (named)', () => {
     const code = transpile(src, { filename: 'test.html' });
     const mod: any = {};
     new Function('module', code)(mod);
-    const fn = Object.values(mod.exports)[0] as Function;
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
 
     expect(fn({ model: { title: 'Hello' } })).toContain('title="Hello"');
   });
@@ -676,7 +745,7 @@ describe('transpile — data-sly-attribute (named)', () => {
     const code = transpile(src, { filename: 'test.html' });
     const mod: any = {};
     new Function('module', code)(mod);
-    const fn = Object.values(mod.exports)[0] as Function;
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
 
     expect(fn({ model: { title: null } })).not.toContain('title=');
   });
@@ -686,7 +755,7 @@ describe('transpile — data-sly-attribute (named)', () => {
     const code = transpile(src, { filename: 'test.html' });
     const mod: any = {};
     new Function('module', code)(mod);
-    const fn = Object.values(mod.exports)[0] as Function;
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
 
     expect(fn({ model: { title: '' } })).toContain('title=""');
   });
@@ -696,7 +765,7 @@ describe('transpile — data-sly-attribute (named)', () => {
     const code = transpile(src, { filename: 'test.html' });
     const mod: any = {};
     new Function('module', code)(mod);
-    const fn = Object.values(mod.exports)[0] as Function;
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
 
     const html = fn({ model: { isDisabled: true } });
     expect(html).toContain('disabled');
@@ -708,7 +777,7 @@ describe('transpile — data-sly-attribute (named)', () => {
     const code = transpile(src, { filename: 'test.html' });
     const mod: any = {};
     new Function('module', code)(mod);
-    const fn = Object.values(mod.exports)[0] as Function;
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
 
     expect(fn({ model: { isDisabled: false } })).not.toContain('disabled');
   });
@@ -718,7 +787,7 @@ describe('transpile — data-sly-attribute (named)', () => {
     const code = transpile(src, { filename: 'test.html' });
     const mod: any = {};
     new Function('module', code)(mod);
-    const fn = Object.values(mod.exports)[0] as Function;
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
 
     const html = fn({ model: { cls: 'dynamic-class' } });
     expect(html).toContain('class="dynamic-class"');
@@ -732,7 +801,7 @@ describe('transpile — data-sly-attribute (object spread)', () => {
     const code = transpile(src, { filename: 'test.html' });
     const mod: any = {};
     new Function('module', code)(mod);
-    const fn = Object.values(mod.exports)[0] as Function;
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
 
     const html = fn({ model: { attrs: { id: 'myId', role: 'button' } } });
     expect(html).toContain('id="myId"');
@@ -744,7 +813,7 @@ describe('transpile — data-sly-attribute (object spread)', () => {
     const code = transpile(src, { filename: 'test.html' });
     const mod: any = {};
     new Function('module', code)(mod);
-    const fn = Object.values(mod.exports)[0] as Function;
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
 
     const html = fn({ model: { attrs: null } });
     expect(html).toContain('<div>');
@@ -762,7 +831,7 @@ describe('transpile — data-sly-test.var + data-sly-repeat on same element', ()
     const code = transpile(src, { filename: 'test.html' });
     const mod: any = {};
     new Function('module', code)(mod);
-    const fn = Object.values(mod.exports)[0] as Function;
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
 
     const html = fn({ items: ['a', 'b', 'c'] });
     expect(html).toContain('<li>a</li>');
@@ -775,7 +844,7 @@ describe('transpile — data-sly-test.var + data-sly-repeat on same element', ()
     const code = transpile(src, { filename: 'test.html' });
     const mod: any = {};
     new Function('module', code)(mod);
-    const fn = Object.values(mod.exports)[0] as Function;
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
 
     expect(fn({ items: [] })).toBe('');
   });
@@ -819,7 +888,7 @@ describe('transpile — data-sly-text', () => {
     const code = transpile(src, { filename: 'test.html' });
     const mod: any = {};
     new Function('module', code)(mod);
-    const fn = Object.values(mod.exports)[0] as Function;
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
     const html = fn({ model: { description: 'Dynamic text' } });
     expect(html).toContain('<p>Dynamic text</p>');
     expect(html).not.toContain('fallback');
@@ -830,7 +899,7 @@ describe('transpile — data-sly-text', () => {
     const code = transpile(src, { filename: 'test.html' });
     const mod: any = {};
     new Function('module', code)(mod);
-    const fn = Object.values(mod.exports)[0] as Function;
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
     const html = fn({ model: { label: '' } });
     expect(html).toContain('<span></span>');
     expect(html).not.toContain('default');
@@ -854,7 +923,7 @@ describe('transpile — data-sly-resource', () => {
     const code = transpile(src, { filename: 'test.html' });
     const mod: any = {};
     new Function('module', code)(mod);
-    const fn = Object.values(mod.exports)[0] as Function;
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
     const html = fn({ _includes: { header: () => '<nav>Nav</nav>' } });
     expect(html).toContain('<nav>Nav</nav>');
   });
@@ -864,7 +933,7 @@ describe('transpile — data-sly-resource', () => {
     const code = transpile(src, { filename: 'test.html' });
     const mod: any = {};
     new Function('module', code)(mod);
-    const fn = Object.values(mod.exports)[0] as Function;
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
     const html = fn({ _includes: { header: '<nav>Nav</nav>' } });
     expect(html).toContain('<nav>Nav</nav>');
   });
@@ -888,7 +957,7 @@ describe('transpile — data-sly-resource', () => {
   });
 
   it('treats bare undefined variable as string literal key', () => {
-    const src = `<sly data-sly-resource="\${resource @ resourceType='wcm/foundation/components/responsivegrid'}"></sly>`;
+    const src = `<sly data-sly-resource="\${resource @ resourceType='wcm/foundation/components/responsivegrid', decorationTagName='div'}"></sly>`;
     const code = transpile(src, {
       filename: 'test.html',
       resourceWrappers: {
@@ -899,7 +968,7 @@ describe('transpile — data-sly-resource', () => {
     expect(code).toContain("'resource'");
     const mod: any = {};
     new Function('module', code)(mod);
-    const fn = Object.values(mod.exports)[0] as Function;
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
     const html = fn({ _includes: { resource: () => '<p>Content</p>' } });
     expect(html).toContain('<div class="aem-Grid">');
     expect(html).toContain('<p>Content</p>');
@@ -914,13 +983,13 @@ describe('transpile — data-sly-resource', () => {
     </div>`;
     const code = transpile(src, { filename: 'test.html' });
     // The resource lookup must use the variable `path`, not the string literal 'path'
-    expect(code).not.toContain("_incSlot(_includes, 'path')");
-    expect(code).toContain('_incSlot(_includes, path)');
+    expect(code).not.toContain("_wrapResource('path',");
+    expect(code).toContain('_wrapResource(path,');
 
     // Runtime: the include function for the computed path must be called
     const mod: any = {};
     new Function('module', code)(mod);
-    const fn = Object.values(mod.exports)[0] as Function;
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
     const html = fn({
       resource: { path: 'navgroup' },
       itemList: { index: 0 },
@@ -950,7 +1019,7 @@ describe('transpile — data-sly-template & data-sly-call', () => {
     const code = transpile(src, { filename: 'test.html' });
     const mod: any = {};
     new Function('module', code)(mod);
-    const html = mod.exports.createGreeting({ name: 'World' });
+    const html = String(mod.exports.createGreeting({ name: 'World' }));
     expect(html).toContain('<span>Hello World!</span>');
   });
 
@@ -961,7 +1030,7 @@ describe('transpile — data-sly-template & data-sly-call', () => {
     const code = transpile(src, { filename: 'test.html' });
     const mod: any = {};
     new Function('module', code)(mod);
-    const fn = mod.exports.createBadge;
+    const fn = strFn(mod.exports.createBadge);
     const html = fn({ label: 'New' });
     expect(html).toContain('<span class="badge">New</span>');
   });
@@ -984,7 +1053,7 @@ describe('transpile — data-sly-template & data-sly-call', () => {
     const code = transpile(src, { filename: 'helper.html' });
     const mod: any = {};
     new Function('module', code)(mod);
-    const fn = mod.exports.createImg;
+    const fn = strFn(mod.exports.createImg);
     const html = fn({ src: '/img/test.png', alt: 'test' });
     expect(html).toContain('loading="lazy"');
     expect(html).not.toContain('loading="{}"');
@@ -1003,7 +1072,7 @@ describe('transpile — data-sly-list', () => {
     const code = transpile(src, { filename: 'test.html' });
     const mod: any = {};
     new Function('module', code)(mod);
-    const fn = Object.values(mod.exports)[0] as Function;
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
     const html = fn({ items: [{ name: 'A' }, { name: 'B' }] });
     // List mode: <ul> appears once, <li> repeated
     expect(html.match(/<ul>/g)?.length).toBe(1);
@@ -1017,7 +1086,7 @@ describe('transpile — data-sly-list', () => {
     const code = transpile(src, { filename: 'test.html' });
     const mod: any = {};
     new Function('module', code)(mod);
-    const fn = Object.values(mod.exports)[0] as Function;
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
     const html = fn({ items: ['x', 'y'] });
     expect(html).toContain('class="first"');
   });
@@ -1027,7 +1096,7 @@ describe('transpile — data-sly-list', () => {
     const code = transpile(src, { filename: 'test.html' });
     const mod: any = {};
     new Function('module', code)(mod);
-    const fn = Object.values(mod.exports)[0] as Function;
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
     const html = fn({ items: ['a', null, 'b'] });
     expect(html.match(/<li>/g)?.length).toBe(2);
   });
@@ -1037,7 +1106,7 @@ describe('transpile — data-sly-list', () => {
     const code = transpile(src, { filename: 'test.html' });
     const mod: any = {};
     new Function('module', code)(mod);
-    const fn = Object.values(mod.exports)[0] as Function;
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
     const html = fn({ items: ['a', 'b', 'c'] });
     const midCount = (html.match(/class="mid"/g) ?? []).length;
     expect(midCount).toBe(1);
@@ -1048,7 +1117,7 @@ describe('transpile — data-sly-list', () => {
     const code = transpile(src, { filename: 'test.html' });
     const mod: any = {};
     new Function('module', code)(mod);
-    const fn = Object.values(mod.exports)[0] as Function;
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
     const html = fn({ items: ['a', 'b', 'c'] });
     expect(html).toContain('false');
     expect(html).toContain('true');
@@ -1059,7 +1128,7 @@ describe('transpile — data-sly-list', () => {
     const code = transpile(src, { filename: 'test.html' });
     const mod: any = {};
     new Function('module', code)(mod);
-    const fn = Object.values(mod.exports)[0] as Function;
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
     const html = fn({ items: ['a', 'b', 'c'] });
     expect(html).not.toContain('>a<');
     expect(html).toContain('>b<');
@@ -1071,7 +1140,7 @@ describe('transpile — data-sly-list', () => {
     const code = transpile(src, { filename: 'test.html' });
     const mod: any = {};
     new Function('module', code)(mod);
-    const fn = Object.values(mod.exports)[0] as Function;
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
     const html = fn({ items: ['a', 'b', 'c'] });
     expect(html).toContain('>a<');
     expect(html).toContain('>b<');
@@ -1083,7 +1152,7 @@ describe('transpile — data-sly-list', () => {
     const code = transpile(src, { filename: 'test.html' });
     const mod: any = {};
     new Function('module', code)(mod);
-    const fn = Object.values(mod.exports)[0] as Function;
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
     const html = fn({ items: ['a', 'b', 'c', 'd', 'e'] });
     expect(html).toContain('>a<');
     expect(html).not.toContain('>b<');
@@ -1097,7 +1166,7 @@ describe('transpile — data-sly-list', () => {
     const code = transpile(src, { filename: 'test.html' });
     const mod: any = {};
     new Function('module', code)(mod);
-    const fn = Object.values(mod.exports)[0] as Function;
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
     const html = fn({ items: ['a', 'b', 'c', 'd', 'e', 'f'] });
     expect(html).not.toContain('>a<');
     expect(html).toContain('>b<');
@@ -1116,8 +1185,8 @@ describe('transpile — data-sly-list', () => {
     const modR: any = {};
     new Function('module', codeList)(modL);
     new Function('module', codeRepeat)(modR);
-    const fnL = Object.values(modL.exports)[0] as Function;
-    const fnR = Object.values(modR.exports)[0] as Function;
+    const fnL = strFn(Object.values(modL.exports)[0] as Function);
+    const fnR = strFn(Object.values(modR.exports)[0] as Function);
     const items = [{ toString: () => 'A' }, { toString: () => 'B' }];
     const htmlList = fnL({ items });
     const htmlRepeat = fnR({ items });
@@ -1137,7 +1206,7 @@ describe('transpile — bare repeat/list (default item variable)', () => {
     const code = transpile(src, { filename: 'test.html' });
     const mod: any = {};
     new Function('module', code)(mod);
-    const fn = Object.values(mod.exports)[0] as Function;
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
     const html = fn({ items: ['x', 'y'] });
     expect(html).toContain('x');
     expect(html).toContain('y');
@@ -1148,7 +1217,7 @@ describe('transpile — bare repeat/list (default item variable)', () => {
     const code = transpile(src, { filename: 'test.html' });
     const mod: any = {};
     new Function('module', code)(mod);
-    const fn = Object.values(mod.exports)[0] as Function;
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
     const html = fn({ items: ['a', 'b'] });
     expect(html.match(/<ul>/g)?.length).toBe(1);
     expect(html).toContain('a');
@@ -1166,7 +1235,7 @@ describe('transpile — void elements', () => {
     const code = transpile(src, { filename: 'test.html' });
     const mod: any = {};
     new Function('module', code)(mod);
-    const fn = Object.values(mod.exports)[0] as Function;
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
     const html = fn();
     expect(html).toContain('<br>');
     expect(html).not.toContain('</br>');
@@ -1177,7 +1246,7 @@ describe('transpile — void elements', () => {
     const code = transpile(src, { filename: 'test.html' });
     const mod: any = {};
     new Function('module', code)(mod);
-    const fn = Object.values(mod.exports)[0] as Function;
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
     const html = fn({ model: { src: '/img.png', alt: 'Logo' } });
     expect(html).toContain('<img');
     expect(html).toContain('src="/img.png"');
@@ -1189,7 +1258,7 @@ describe('transpile — void elements', () => {
     const code = transpile(src, { filename: 'test.html' });
     const mod: any = {};
     new Function('module', code)(mod);
-    const fn = Object.values(mod.exports)[0] as Function;
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
     const html = fn({ model: { val: 'hello' } });
     expect(html).toContain('<input');
     expect(html).not.toContain('</input>');
@@ -1206,7 +1275,7 @@ describe('transpile — <sly> element elision', () => {
     const code = transpile(src, { filename: 'test.html' });
     const mod: any = {};
     new Function('module', code)(mod);
-    const fn = Object.values(mod.exports)[0] as Function;
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
     const html = fn({ model: { show: true } });
     expect(html).not.toContain('<sly');
     expect(html).not.toContain('</sly>');
@@ -1218,7 +1287,7 @@ describe('transpile — <sly> element elision', () => {
     const code = transpile(src, { filename: 'test.html' });
     const mod: any = {};
     new Function('module', code)(mod);
-    const fn = Object.values(mod.exports)[0] as Function;
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
     const html = fn();
     expect(html).not.toContain('<sly');
     expect(html).toContain('<p>hello</p>');
@@ -1235,7 +1304,7 @@ describe('transpile — HTML comment handling', () => {
     const code = transpile(src, { filename: 'test.html' });
     const mod: any = {};
     new Function('module', code)(mod);
-    const fn = Object.values(mod.exports)[0] as Function;
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
     const html = fn();
     expect(html).toContain('<!-- regular comment -->');
     expect(html).toContain('content');
@@ -1246,7 +1315,7 @@ describe('transpile — HTML comment handling', () => {
     const code = transpile(src, { filename: 'test.html' });
     const mod: any = {};
     new Function('module', code)(mod);
-    const fn = Object.values(mod.exports)[0] as Function;
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
     const html = fn();
     expect(html).not.toContain('secret');
     expect(html).toContain('visible');
@@ -1283,7 +1352,7 @@ describe('transpile — variable casing preservation', () => {
     expect(code).toContain('myVariable');
     const mod: any = {};
     new Function('module', code)(mod);
-    const fn = Object.values(mod.exports)[0] as Function;
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
     const html = fn();
     expect(html).toContain('hello');
   });
@@ -1304,7 +1373,7 @@ describe('transpile — variable casing preservation', () => {
     // must work at runtime: renders only <td> whose index is < columnsCount
     const mod: any = {};
     new Function('module', code)(mod);
-    const fn = Object.values(mod.exports)[0] as Function;
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
     const html = fn({ model: { cells: [{ text: 'A' }, { text: 'B' }, { text: 'C' }], columnsCount: 2 } });
     // index 0 < 2 → A, index 1 < 2 → B, index 2 < 2 → false → C skipped
     expect(html).toContain('A');
@@ -1321,7 +1390,7 @@ describe('transpile — variable casing preservation', () => {
     // also verify it renders correctly at runtime
     const mod: any = {};
     new Function('module', code)(mod);
-    const fn = Object.values(mod.exports)[0] as Function;
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
     const html = fn({ model: { items: [{ name: 'alpha' }, { name: 'beta' }] } });
     expect(html).toContain('alpha (1)');
     expect(html).toContain('beta (2)');
@@ -1338,7 +1407,7 @@ describe('transpile — default omitAttrs', () => {
     const code = transpile(src, { filename: 'test.html' });
     const mod: any = {};
     new Function('module', code)(mod);
-    const fn = Object.values(mod.exports)[0] as Function;
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
     const html = fn();
     expect(html).not.toContain('data-emptytext');
     expect(html).toContain('content');
@@ -1349,7 +1418,7 @@ describe('transpile — default omitAttrs', () => {
     const code = transpile(src, { filename: 'test.html' });
     const mod: any = {};
     new Function('module', code)(mod);
-    const fn = Object.values(mod.exports)[0] as Function;
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
     const html = fn({ model: { layer: '{}' } });
     expect(html).not.toContain('data-cmp-data-layer');
   });
@@ -1359,7 +1428,7 @@ describe('transpile — default omitAttrs', () => {
     const code = transpile(src, { filename: 'test.html' });
     const mod: any = {};
     new Function('module', code)(mod);
-    const fn = Object.values(mod.exports)[0] as Function;
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
     const html = fn();
     expect(html).not.toContain('data-placeholder-text');
   });
@@ -1377,7 +1446,7 @@ describe('transpile — free variable detection', () => {
     expect(code).toContain('customVar');
     const mod: any = {};
     new Function('module', code)(mod);
-    const fn = Object.values(mod.exports)[0] as Function;
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
     const html = fn({ customVar: { visible: true } });
     expect(html).toContain('shown');
   });
@@ -1433,7 +1502,7 @@ describe('transpile — _htlAttr edge cases', () => {
     const code = transpile(src, { filename: 'test.html' });
     const mod: any = {};
     new Function('module', code)(mod);
-    const fn = Object.values(mod.exports)[0] as Function;
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
     const html = fn({ model: { config: { a: 1 } } });
     // Object should be JSON-serialized
     expect(html).toContain('{');
@@ -1445,7 +1514,7 @@ describe('transpile — _htlAttr edge cases', () => {
     const code = transpile(src, { filename: 'test.html' });
     const mod: any = {};
     new Function('module', code)(mod);
-    const fn = Object.values(mod.exports)[0] as Function;
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
     const html = fn({ model: { title: null } });
     expect(html).not.toContain('title');
     expect(html).toBe('<div>content</div>');
@@ -1456,7 +1525,7 @@ describe('transpile — _htlAttr edge cases', () => {
     const code = transpile(src, { filename: 'test.html' });
     const mod: any = {};
     new Function('module', code)(mod);
-    const fn = Object.values(mod.exports)[0] as Function;
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
     const html = fn({ model: { title: '' } });
     expect(html).toContain('title=""');
   });
@@ -1472,7 +1541,7 @@ describe('escapeLiteral — bare $ sign', () => {
     const code = transpile(src, { filename: 'test.html' });
     const mod: any = {};
     new Function('module', code)(mod);
-    const fn = Object.values(mod.exports)[0] as Function;
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
     const html = fn();
     expect(html).toContain('$50');
   });
@@ -1536,7 +1605,7 @@ describe('transpile — i18n dictionary', () => {
     const code = transpile(src, { filename: 'test.html' });
     const mod: any = {};
     new Function('module', code)(mod);
-    const fn = Object.values(mod.exports)[0] as Function;
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
     const html = fn({ _i18n: { 'Read more': 'Leer más' } });
     expect(html).toContain('Leer más');
     expect(html).not.toContain('Read more');
@@ -1547,7 +1616,7 @@ describe('transpile — i18n dictionary', () => {
     const code = transpile(src, { filename: 'test.html' });
     const mod: any = {};
     new Function('module', code)(mod);
-    const fn = Object.values(mod.exports)[0] as Function;
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
     const html = fn({ _i18n: {} });
     expect(html).toContain('Read more');
   });
@@ -1557,7 +1626,7 @@ describe('transpile — i18n dictionary', () => {
     const code = transpile(src, { filename: 'test.html' });
     const mod: any = {};
     new Function('module', code)(mod);
-    const fn = Object.values(mod.exports)[0] as Function;
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
     const html = fn();
     expect(html).toContain('Read more');
   });
@@ -1567,7 +1636,7 @@ describe('transpile — i18n dictionary', () => {
     const code = transpile(src, { filename: 'test.html' });
     const mod: any = {};
     new Function('module', code)(mod);
-    const fn = Object.values(mod.exports)[0] as Function;
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
     const html = fn({ _i18n: { 'Go home': 'Ir al inicio' } });
     expect(html).toContain('Ir al inicio');
   });
@@ -1577,7 +1646,7 @@ describe('transpile — i18n dictionary', () => {
     const code = transpile(src, { filename: 'test.html' });
     const mod: any = {};
     new Function('module', code)(mod);
-    const fn = Object.values(mod.exports)[0] as Function;
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
     const html = fn({ _i18n: { Title: 'Título', Description: 'Descripción' } });
     expect(html).toContain('Título');
     expect(html).toContain('Descripción');
@@ -1589,7 +1658,7 @@ describe('transpile — i18n dictionary', () => {
     const code = transpile(src, { filename: 'test.html' });
     const mod: any = {};
     new Function('module', code)(mod);
-    const fn = Object.values(mod.exports)[0] as Function;
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
     const html = fn({ model: { label: 'Read more' }, _i18n: { 'Read more': 'Leer más' } });
     expect(html).toContain('Leer más');
     expect(html).not.toContain('Read more');
@@ -1600,7 +1669,7 @@ describe('transpile — i18n dictionary', () => {
     const code = transpile(src, { filename: 'test.html' });
     const mod: any = {};
     new Function('module', code)(mod);
-    const fn = Object.values(mod.exports)[0] as Function;
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
     const html = fn({ model: { label: 'Read more' }, _i18n: {} });
     expect(html).toContain('Read more');
   });
@@ -1616,7 +1685,7 @@ describe('transpile — i18n dictionary', () => {
     const code = transpile(src, { filename: 'test.html' });
     const mod: any = {};
     new Function('module', code)(mod);
-    const fn = Object.values(mod.exports)[0] as Function;
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
     const html = fn({ model: { label: 'Go home' }, _i18n: { 'Go home': 'Ir al inicio' } });
     expect(html).toContain('Ir al inicio');
   });
@@ -1743,7 +1812,7 @@ describe('transpile — nested sly elements', () => {
     const code = transpile(src, { filename: 'test.html' });
     const mod: any = {};
     new Function('module', code)(mod);
-    const fn = Object.values(mod.exports)[0] as Function;
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
     const html = fn({ show: true, extra: true });
     expect(html).not.toContain('<sly');
     expect(html).toContain('<span>deep</span>');
@@ -1754,7 +1823,7 @@ describe('transpile — nested sly elements', () => {
     const code = transpile(src, { filename: 'test.html' });
     const mod: any = {};
     new Function('module', code)(mod);
-    const fn = Object.values(mod.exports)[0] as Function;
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
     expect(fn({ show: true, extra: false })).toBe('');
   });
 });
@@ -1771,7 +1840,7 @@ describe('transpile — data-sly-call inside repeat', () => {
     const code = transpile(src, { filename: 'test.html' });
     const mod: any = {};
     new Function('module', code)(mod);
-    const fn = mod.exports.createBadge;
+    const fn = strFn(mod.exports.createBadge);
     expect(fn).toBeDefined();
     // The badge template itself should render correctly
     expect(fn({ label: 'X' })).toContain('badge');
@@ -1792,7 +1861,7 @@ describe('transpile — set variable scope', () => {
     const code = transpile(src, { filename: 'test.html' });
     const mod: any = {};
     new Function('module', code)(mod);
-    const fn = Object.values(mod.exports)[0] as Function;
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
     const html = fn({ model: { heading: 'MyTitle' } });
     expect(html).toContain('<h1>MyTitle</h1>');
     expect(html).toContain('aria-label="MyTitle"');
@@ -1809,7 +1878,7 @@ describe('transpile — multiple dynamic attributes', () => {
     const code = transpile(src, { filename: 'test.html' });
     const mod: any = {};
     new Function('module', code)(mod);
-    const fn = Object.values(mod.exports)[0] as Function;
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
     const html = fn({ model: { id: 'el1', title: 'Hello', role: 'button' } });
     expect(html).toContain('id="el1"');
     expect(html).toContain('title="Hello"');
@@ -1821,7 +1890,7 @@ describe('transpile — multiple dynamic attributes', () => {
     const code = transpile(src, { filename: 'test.html' });
     const mod: any = {};
     new Function('module', code)(mod);
-    const fn = Object.values(mod.exports)[0] as Function;
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
     const html = fn({ model: { id: 'el1', title: null } });
     expect(html).toContain('id="el1"');
     expect(html).not.toContain('title=');
@@ -1838,7 +1907,7 @@ describe('transpile — element + text combined', () => {
     const code = transpile(src, { filename: 'test.html' });
     const mod: any = {};
     new Function('module', code)(mod);
-    const fn = Object.values(mod.exports)[0] as Function;
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
     const html = fn({ model: { tag: 'h1', content: 'Title' } });
     expect(html).toContain('<h1');
     expect(html).toContain('Title');
@@ -1857,7 +1926,7 @@ describe('transpile — test + resource combined', () => {
     const code = transpile(src, { filename: 'test.html' });
     const mod: any = {};
     new Function('module', code)(mod);
-    const fn = Object.values(mod.exports)[0] as Function;
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
     const html = fn({
       model: { showHeader: true },
       _includes: { header: () => '<nav>Nav</nav>' },
@@ -1870,7 +1939,7 @@ describe('transpile — test + resource combined', () => {
     const code = transpile(src, { filename: 'test.html' });
     const mod: any = {};
     new Function('module', code)(mod);
-    const fn = Object.values(mod.exports)[0] as Function;
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
     const html = fn({
       model: { showHeader: false },
       _includes: { header: () => '<nav>Nav</nav>' },
@@ -1889,7 +1958,7 @@ describe('transpile — unwrap with nested children', () => {
     const code = transpile(src, { filename: 'test.html' });
     const mod: any = {};
     new Function('module', code)(mod);
-    const fn = Object.values(mod.exports)[0] as Function;
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
 
     const withWrapper = fn({ model: { showWrapper: true } });
     expect(withWrapper).toContain('<div>');
@@ -1913,7 +1982,7 @@ describe('transpile — set inside repeat', () => {
     const code = transpile(src, { filename: 'test.html' });
     const mod: any = {};
     new Function('module', code)(mod);
-    const fn = Object.values(mod.exports)[0] as Function;
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
     const html = fn({ items: [{ name: 'A' }, { name: 'B' }] });
     expect(html).toContain('A');
     expect(html).toContain('B');
@@ -1930,7 +1999,7 @@ describe('transpile — multiple includes', () => {
     const code = transpile(src, { filename: 'test.html' });
     const mod: any = {};
     new Function('module', code)(mod);
-    const fn = Object.values(mod.exports)[0] as Function;
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
     const html = fn({
       _includes: {
         './header.html': () => '<nav>H</nav>',
@@ -1953,7 +2022,7 @@ describe('transpile — dynamic attribute overrides static', () => {
     const code = transpile(src, { filename: 'test.html' });
     const mod: any = {};
     new Function('module', code)(mod);
-    const fn = Object.values(mod.exports)[0] as Function;
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
     const html = fn({ model: { cls: 'dynamic' } });
     expect(html).toContain('class="dynamic"');
     expect(html).not.toContain('static-class');
@@ -1970,7 +2039,7 @@ describe('transpile — test + include combined', () => {
     const code = transpile(src, { filename: 'test.html' });
     const mod: any = {};
     new Function('module', code)(mod);
-    const fn = Object.values(mod.exports)[0] as Function;
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
     const html = fn({
       model: { show: false },
       _includes: { './partial.html': () => 'INCLUDED' },
@@ -1983,7 +2052,7 @@ describe('transpile — test + include combined', () => {
     const code = transpile(src, { filename: 'test.html' });
     const mod: any = {};
     new Function('module', code)(mod);
-    const fn = Object.values(mod.exports)[0] as Function;
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
     const html = fn({
       model: { show: true },
       _includes: { './partial.html': () => 'INCLUDED' },
@@ -1996,7 +2065,7 @@ describe('transpile — test + include combined', () => {
     const code = transpile(src, { filename: 'test.html' });
     const mod: any = {};
     new Function('module', code)(mod);
-    const fn = Object.values(mod.exports)[0] as Function;
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
     const html = fn({
       _includes: {
         './header.html': ({ wcmmode }: { wcmmode?: string }) =>
@@ -2017,7 +2086,7 @@ describe('transpile — list + text combined', () => {
     const code = transpile(src, { filename: 'test.html' });
     const mod: any = {};
     new Function('module', code)(mod);
-    const fn = Object.values(mod.exports)[0] as Function;
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
     const html = fn({ items: [{ label: 'A' }, { label: 'B' }] });
     expect(html).toContain('<li>A</li>');
     expect(html).toContain('<li>B</li>');
@@ -2036,7 +2105,7 @@ describe('transpile — repeat with conditional inner elements', () => {
     const code = transpile(src, { filename: 'test.html' });
     const mod: any = {};
     new Function('module', code)(mod);
-    const fn = Object.values(mod.exports)[0] as Function;
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
     const html = fn({
       items: [
         { name: 'A', show: true },
@@ -2082,7 +2151,7 @@ describe('transpile — real-world AEM accordion pattern', () => {
     const code = transpile(accordionSrc, { filename: 'accordion.html' });
     const mod: any = {};
     new Function('module', code)(mod);
-    const fn = Object.values(mod.exports)[0] as Function;
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
     const html = fn({
       accordion: {
         items: [
@@ -2107,7 +2176,7 @@ describe('transpile — real-world AEM accordion pattern', () => {
     const code = transpile(accordionSrc, { filename: 'accordion.html' });
     const mod: any = {};
     new Function('module', code)(mod);
-    const fn = Object.values(mod.exports)[0] as Function;
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
     const html = fn({
       accordion: { items: [], expandedItems: {}, id: 'acc1' },
     });
@@ -2118,7 +2187,7 @@ describe('transpile — real-world AEM accordion pattern', () => {
     const code = transpile(accordionSrc, { filename: 'accordion.html' });
     const mod: any = {};
     new Function('module', code)(mod);
-    const fn = Object.values(mod.exports)[0] as Function;
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
     expect(() =>
       fn({
         accordion: {
@@ -2141,7 +2210,7 @@ describe('transpile — spread + named dynamic attributes', () => {
     const code = transpile(src, { filename: 'test.html' });
     const mod: any = {};
     new Function('module', code)(mod);
-    const fn = Object.values(mod.exports)[0] as Function;
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
     const html = fn({
       model: { attrs: { role: 'dialog', title: 'Hello' }, id: 'myId' },
     });
@@ -2160,7 +2229,7 @@ describe('transpile — test with complex expressions', () => {
     const code = transpile(src, { filename: 'test.html' });
     const mod: any = {};
     new Function('module', code)(mod);
-    const fn = Object.values(mod.exports)[0] as Function;
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
     expect(fn({ model: { a: true, b: true } })).toContain('both');
     expect(fn({ model: { a: true, b: false } })).not.toContain('both');
   });
@@ -2170,7 +2239,7 @@ describe('transpile — test with complex expressions', () => {
     const code = transpile(src, { filename: 'test.html' });
     const mod: any = {};
     new Function('module', code)(mod);
-    const fn = Object.values(mod.exports)[0] as Function;
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
     expect(fn({ model: { hidden: false } })).toContain('visible');
     expect(fn({ model: { hidden: true } })).not.toContain('visible');
   });
@@ -2186,7 +2255,7 @@ describe('transpile — void element + dynamic attributes', () => {
     const code = transpile(src, { filename: 'test.html' });
     const mod: any = {};
     new Function('module', code)(mod);
-    const fn = Object.values(mod.exports)[0] as Function;
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
     const html = fn({
       model: { name: 'email', val: 'test@test.com', isDisabled: true },
     });
@@ -2270,7 +2339,7 @@ describe('transpile — comments inside conditional', () => {
     const code = transpile(src, { filename: 'test.html' });
     const mod: any = {};
     new Function('module', code)(mod);
-    const fn = Object.values(mod.exports)[0] as Function;
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
     const html = fn({ model: { show: true } });
     expect(html).toContain('<!-- note -->');
     expect(html).toContain('content');
@@ -2281,7 +2350,7 @@ describe('transpile — comments inside conditional', () => {
     const code = transpile(src, { filename: 'test.html' });
     const mod: any = {};
     new Function('module', code)(mod);
-    const fn = Object.values(mod.exports)[0] as Function;
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
     const html = fn({ model: { show: true } });
     expect(html).not.toContain('hidden');
     expect(html).toContain('visible');
@@ -2298,7 +2367,7 @@ describe('transpile — set with mixed literal and expression', () => {
     const code = transpile(src, { filename: 'test.html' });
     const mod: any = {};
     new Function('module', code)(mod);
-    const fn = Object.values(mod.exports)[0] as Function;
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
     const html = fn({ model: { slug: 'about-us' } });
     expect(html).toContain('href="/page/about-us"');
   });
@@ -2317,7 +2386,7 @@ describe('transpile — custom omitAttrs', () => {
     });
     const mod: any = {};
     new Function('module', code)(mod);
-    const fn = Object.values(mod.exports)[0] as Function;
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
     const html = fn();
     expect(html).not.toContain('data-custom-tracking');
     expect(html).toContain('class="wrapper"');
@@ -2334,7 +2403,7 @@ describe('transpile — repeat on outer element repeats entire element', () => {
     const code = transpile(src, { filename: 'test.html' });
     const mod: any = {};
     new Function('module', code)(mod);
-    const fn = Object.values(mod.exports)[0] as Function;
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
     const html = fn({ items: ['A', 'B', 'C'] });
     expect(html.match(/<div class="card">/g)?.length).toBe(3);
     expect(html).toContain('A');
@@ -2352,7 +2421,7 @@ describe('transpile — sly inside table row', () => {
     const code = transpile(src, { filename: 'table.html' });
     const mod: any = {};
     new Function('module', code)(mod);
-    const fn = Object.values(mod.exports)[0] as Function;
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
     const html = fn({
       model: {
         headers: [{ title: 'A' }, { title: 'B' }, { title: 'C' }],
@@ -2371,7 +2440,7 @@ describe('transpile — sly inside table row', () => {
     const code = transpile(src, { filename: 'table.html' });
     const mod: any = {};
     new Function('module', code)(mod);
-    const fn = Object.values(mod.exports)[0] as Function;
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
     // Should not throw ReferenceError: headerList is not defined
     expect(() => fn({ model: { headers: ['X', 'Y'] } })).not.toThrow();
     const html = fn({ model: { headers: ['X', 'Y'] } });
@@ -2392,10 +2461,10 @@ describe('transpile — wrapperClass', () => {
       filename: '/apps/mysite/image/image.html',
       wrapperClass: true,
     });
-    expect(code).toContain('class="image');
+    expect(code).toContain('_wrapClass');
     const mod: any = {};
     new Function('module', code)(mod);
-    const fn = Object.values(mod.exports)[0] as Function;
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
     const html = fn();
     expect(html).toBe('<div class="image"><p>hello</p></div>');
   });
@@ -2408,7 +2477,7 @@ describe('transpile — wrapperClass', () => {
     });
     const mod: any = {};
     new Function('module', code)(mod);
-    const fn = Object.values(mod.exports)[0] as Function;
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
     const html = fn();
     expect(html).toBe(
       '<div class="layout aem-GridColumn aem-GridColumn--default--12"><p>content</p></div>'
@@ -2423,7 +2492,7 @@ describe('transpile — wrapperClass', () => {
     });
     const mod: any = {};
     new Function('module', code)(mod);
-    const fn = Object.values(mod.exports)[0] as Function;
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
     const html = fn({
       _wrapperClass: 'aem-GridColumn aem-GridColumn--default--12',
     });
@@ -2437,7 +2506,7 @@ describe('transpile — wrapperClass', () => {
     const code = transpile(src, { filename: 'test.html', wrapperClass: false });
     const mod: any = {};
     new Function('module', code)(mod);
-    const fn = Object.values(mod.exports)[0] as Function;
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
     const html = fn();
     expect(html).toBe('<p>hi</p>');
   });
@@ -2447,7 +2516,7 @@ describe('transpile — wrapperClass', () => {
     const code = transpile(src, { filename: 'test.html' });
     const mod: any = {};
     new Function('module', code)(mod);
-    const fn = Object.values(mod.exports)[0] as Function;
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
     const html = fn();
     expect(html).toBe('<p>hi</p>');
   });
@@ -2459,7 +2528,7 @@ describe('transpile — wrapperClass', () => {
 
 describe('transpile — resourceWrappers', () => {
   it('wraps resource include when static resourceWrappers match', () => {
-    const src = `<sly data-sly-resource="\${'responsivegrid'}"></sly>`;
+    const src = `<sly data-sly-resource="\${'responsivegrid' @ decorationTagName='div'}"></sly>`;
     const code = transpile(src, {
       filename: 'test.html',
       resourceWrappers: {
@@ -2468,7 +2537,7 @@ describe('transpile — resourceWrappers', () => {
     });
     const mod: any = {};
     new Function('module', code)(mod);
-    const fn = Object.values(mod.exports)[0] as Function;
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
     const html = fn({
       _includes: { responsivegrid: () => '<div>grid content</div>' },
     });
@@ -2487,17 +2556,17 @@ describe('transpile — resourceWrappers', () => {
     });
     const mod: any = {};
     new Function('module', code)(mod);
-    const fn = Object.values(mod.exports)[0] as Function;
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
     const html = fn({ _includes: { header: () => '<nav>Nav</nav>' } });
     expect(html).toBe('<nav>Nav</nav>');
   });
 
   it('allows runtime _resourceWrappers to override static ones', () => {
-    const src = `<sly data-sly-resource="\${'grid'}"></sly>`;
+    const src = `<sly data-sly-resource="\${'grid' @ decorationTagName='div'}"></sly>`;
     const code = transpile(src, { filename: 'test.html' });
     const mod: any = {};
     new Function('module', code)(mod);
-    const fn = Object.values(mod.exports)[0] as Function;
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
     const html = fn({
       _includes: { grid: () => '<p>G</p>' },
       _resourceWrappers: { grid: 'custom-grid-class' },
@@ -2507,14 +2576,14 @@ describe('transpile — resourceWrappers', () => {
   });
 
   it('wraps resource on non-sly elements too', () => {
-    const src = `<div data-sly-resource="\${'sidebar'}">old</div>`;
+    const src = `<div data-sly-resource="\${'sidebar' @ decorationTagName='div'}">old</div>`;
     const code = transpile(src, {
       filename: 'test.html',
       resourceWrappers: { sidebar: 'sidebar-wrapper' },
     });
     const mod: any = {};
     new Function('module', code)(mod);
-    const fn = Object.values(mod.exports)[0] as Function;
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
     const html = fn({ _includes: { sidebar: () => '<aside>Side</aside>' } });
     expect(html).toContain('<div>');
     expect(html).toContain('<div class="sidebar-wrapper">');
@@ -2526,7 +2595,7 @@ describe('transpile — resourceWrappers', () => {
     const code = transpile(src, { filename: 'test.html' });
     const mod: any = {};
     new Function('module', code)(mod);
-    const fn = Object.values(mod.exports)[0] as Function;
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
     const html = fn({
       _includes: {
         par: ({ wcmmode }: { wcmmode?: string }) =>
@@ -2537,7 +2606,7 @@ describe('transpile — resourceWrappers', () => {
   });
 
   it('matches by resourceType when key does not match', () => {
-    const src = `<sly data-sly-resource="\${'par' @ resourceType='mysite/components/responsivegrid'}"></sly>`;
+    const src = `<sly data-sly-resource="\${'par' @ resourceType='mysite/components/responsivegrid', decorationTagName='div'}"></sly>`;
     const code = transpile(src, {
       filename: 'test.html',
       resourceWrappers: {
@@ -2547,7 +2616,7 @@ describe('transpile — resourceWrappers', () => {
     });
     const mod: any = {};
     new Function('module', code)(mod);
-    const fn = Object.values(mod.exports)[0] as Function;
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
     const html = fn({
       _includes: { par: () => '<div class="col">content</div>' },
     });
@@ -2558,7 +2627,7 @@ describe('transpile — resourceWrappers', () => {
   });
 
   it('prefers resource key match over resourceType match', () => {
-    const src = `<sly data-sly-resource="\${'par' @ resourceType='mysite/components/responsivegrid'}"></sly>`;
+    const src = `<sly data-sly-resource="\${'par' @ resourceType='mysite/components/responsivegrid', decorationTagName='div'}"></sly>`;
     const code = transpile(src, {
       filename: 'test.html',
       resourceWrappers: {
@@ -2568,14 +2637,14 @@ describe('transpile — resourceWrappers', () => {
     });
     const mod: any = {};
     new Function('module', code)(mod);
-    const fn = Object.values(mod.exports)[0] as Function;
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
     const html = fn({ _includes: { par: () => '<p>hi</p>' } });
     expect(html).toContain('<div class="par-specific-class">');
     expect(html).not.toContain('generic-grid-class');
   });
 
   it('resourceType match works with object config (wrapper + childClass)', () => {
-    const src = `<sly data-sly-resource="\${'par' @ resourceType='anaplan/components/responsivegrid'}"></sly>`;
+    const src = `<sly data-sly-resource="\${'par' @ resourceType='anaplan/components/responsivegrid', decorationTagName='div'}"></sly>`;
     const code = transpile(src, {
       filename: 'test.html',
       resourceWrappers: {
@@ -2587,7 +2656,7 @@ describe('transpile — resourceWrappers', () => {
     });
     const mod: any = {};
     new Function('module', code)(mod);
-    const fn = Object.values(mod.exports)[0] as Function;
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
     const html = fn({
       _includes: { par: () => '<div class="column">text</div>' },
     });
@@ -2598,16 +2667,438 @@ describe('transpile — resourceWrappers', () => {
       '<div class="column aem-GridColumn aem-GridColumn--default--12">text</div>'
     );
   });
+
+  it('wrapper + childClass work correctly when slot component has wrapperClass (_hasOwnDecoration)', () => {
+    // Simulates: layout container with a parsys slot pointing to a responsivegrid component.
+    // The subcomponent is transpiled with wrapperClass:true so it self-decorates.
+    // The parent uses resourceWrappers with wrapper+childClass for the grid layout.
+    // Expected: wrapper div > subcomponent-div+childClass > inner content
+    const subSrc = `<div class="cmp-column"><p>Text</p></div>`;
+    const subCode = transpile(subSrc, {
+      filename: '/apps/mysite/column/column.html',
+      wrapperClass: true,
+    });
+    const subMod: any = {};
+    new Function('module', subCode)(subMod);
+    const createColumn = Object.values(subMod.exports)[0] as Function;
+
+    const parentSrc = `<div class="cmp-component"><sly data-sly-resource="\${'par' @ resourceType='mysite/components/responsivegrid'}"></sly></div>`;
+    const parentCode = transpile(parentSrc, {
+      filename: '/apps/mysite/container/container.html',
+      wrapperClass: true,
+      resourceWrappers: {
+        'mysite/components/responsivegrid': {
+          wrapper: 'aem-Grid aem-Grid--12 aem-Grid--default--12',
+          childClass: 'aem-GridColumn aem-GridColumn--default--12',
+        },
+      },
+    });
+    const parentMod: any = {};
+    new Function('module', parentCode)(parentMod);
+    const html = String((Object.values(parentMod.exports)[0] as Function)({
+      _includes: { par: () => createColumn() },
+    }));
+
+    // Outer decoration from parent wrapperClass
+    expect(html).toContain('<div class="container">');
+    // Parent inner content
+    expect(html).toContain('<div class="cmp-component">');
+    // resourceWrappers.wrapper applied around the slot
+    expect(html).toContain('<div class="aem-Grid aem-Grid--12 aem-Grid--default--12">');
+    // childClass injected into slot's own decoration div (not double-wrapped)
+    expect(html).toContain('<div class="column aem-GridColumn aem-GridColumn--default--12">');
+    // No double decoration on the column
+    expect(html).not.toMatch(/<div class="column[^"]*">\s*<div class="column/);
+    // Inner content preserved
+    expect(html).toContain('<div class="cmp-column"><p>Text</p></div>');
+  });
+
+  it('decorationTagName="false" suppresses cfg.wrapper even when slot has _hasOwnDecoration', () => {
+    const subCode = transpile(`<p>inner</p>`, {
+      filename: '/apps/mysite/column/column.html',
+      wrapperClass: true,
+    });
+    const subMod: any = {};
+    new Function('module', subCode)(subMod);
+    const createColumn = Object.values(subMod.exports)[0] as Function;
+
+    const src = `<sly data-sly-resource="\${'slot' @ decorationTagName='false', resourceType='mysite/components/responsivegrid'}"></sly>`;
+    const code = transpile(src, {
+      filename: 'test.html',
+      resourceWrappers: { 'mysite/components/responsivegrid': 'aem-Grid' },
+    });
+    const mod: any = {};
+    new Function('module', code)(mod);
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
+    const html = fn({ _includes: { slot: () => createColumn() } });
+
+    // decorationTagName='false' suppresses even the cfg wrapper
+    expect(html).not.toContain('<div class="aem-Grid">');
+    // component's own decoration is still there (from wrapperClass)
+    expect(html).toContain('<div class="column">');
+    expect(html).toContain('<p>inner</p>');
+  });
+
+  it('decoration=false suppresses cfg.wrapper even when slot has _hasOwnDecoration', () => {
+    const subCode = transpile(`<p>inner</p>`, {
+      filename: '/apps/mysite/column/column.html',
+      wrapperClass: true,
+    });
+    const subMod: any = {};
+    new Function('module', subCode)(subMod);
+    const createColumn = Object.values(subMod.exports)[0] as Function;
+
+    const src = `<sly data-sly-resource="\${'slot' @ decorationTagName='div', decoration=false, resourceType='mysite/components/responsivegrid'}"></sly>`;
+    const code = transpile(src, {
+      filename: 'test.html',
+      resourceWrappers: { 'mysite/components/responsivegrid': 'aem-Grid' },
+    });
+    const mod: any = {};
+    new Function('module', code)(mod);
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
+    const html = fn({ _includes: { slot: () => createColumn() } });
+
+    // decoration=false suppresses even the cfg wrapper
+    expect(html).not.toContain('<div class="aem-Grid">');
+    // component's own decoration is still there (from wrapperClass)
+    expect(html).toContain('<div class="column">');
+    expect(html).toContain('<p>inner</p>');
+  });
 });
 
 // ---------------------------------------------------------------------------
-// transpile — real-world AEM composition: container + responsivegrid + column
+// transpile — resourceWrappers: decoration tag + cssClassName + auto-derivation
 // ---------------------------------------------------------------------------
+
+describe('transpile — resourceWrappers decoration and cssClassName', () => {
+  it('auto-derives decoration class from resourceType last segment', () => {
+    const src = `<sly data-sly-resource="\${'par' @ resourceType='mysite/components/hero', decorationTagName='div'}"></sly>`;
+    const code = transpile(src, { filename: 'test.html' });
+    const mod: any = {};
+    new Function('module', code)(mod);
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
+    const html = fn({ _includes: { par: () => '<div class="cmp-hero">Content</div>' } });
+    expect(html).toContain('<div class="hero">');
+    expect(html).toContain('<div class="cmp-hero">Content</div>');
+  });
+
+  it('resourceWrappers.wrapper overrides auto-derived class', () => {
+    const src = `<sly data-sly-resource="\${'par' @ resourceType='mysite/components/hero', decorationTagName='div'}"></sly>`;
+    const code = transpile(src, {
+      filename: 'test.html',
+      resourceWrappers: { 'mysite/components/hero': { wrapper: 'my-hero-grid' } },
+    });
+    const mod: any = {};
+    new Function('module', code)(mod);
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
+    const html = fn({ _includes: { par: () => '<div>Content</div>' } });
+    expect(html).toContain('<div class="my-hero-grid">');
+    expect(html).not.toContain('hero"');
+  });
+
+  it('cssClassName appends to resourceWrappers.wrapper class', () => {
+    const src = `<sly data-sly-resource="\${'par' @ resourceType='mysite/components/hero', decorationTagName='div', cssClassName=model.extraClasses}"></sly>`;
+    const code = transpile(src, {
+      filename: 'test.html',
+      resourceWrappers: {
+        'mysite/components/hero': { wrapper: 'hero', childClass: 'hero-item' },
+      },
+    });
+    const mod: any = {};
+    new Function('module', code)(mod);
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
+    const html = fn({
+      model: { extraClasses: 'style-dark' },
+      _includes: { par: () => '<div class="cmp-hero">Content</div>' },
+    });
+    expect(html).toContain('<div class="hero style-dark">');
+    expect(html).toContain('<div class="cmp-hero hero-item">Content</div>');
+  });
+
+  it('cssClassName appends to auto-derived class when no wrapper configured', () => {
+    const src = `<sly data-sly-resource="\${'par' @ resourceType='mysite/components/container', decorationTagName='div', cssClassName=model.classes}"></sly>`;
+    const code = transpile(src, { filename: 'test.html' });
+    const mod: any = {};
+    new Function('module', code)(mod);
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
+    const html = fn({
+      model: { classes: 'responsivegrid' },
+      _includes: { par: () => '<div>Content</div>' },
+    });
+    expect(html).toContain('<div class="container responsivegrid">');
+  });
+
+  it('cssClassName alone (no resourceType, no wrapper) still wraps with decoration tag', () => {
+    const src = `<sly data-sly-resource="\${'par' @ decorationTagName='div', cssClassName='custom-class'}"></sly>`;
+    const code = transpile(src, { filename: 'test.html' });
+    const mod: any = {};
+    new Function('module', code)(mod);
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
+    const html = fn({ _includes: { par: () => '<p>hi</p>' } });
+    expect(html).toContain('<div class="custom-class">');
+    expect(html).toContain('<p>hi</p>');
+  });
+
+  it('decorationTagName without cssClassName or resourceType renders tag without class', () => {
+    const src = `<sly data-sly-resource="\${'par' @ decorationTagName='section'}"></sly>`;
+    const code = transpile(src, { filename: 'test.html' });
+    const mod: any = {};
+    new Function('module', code)(mod);
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
+    const html = fn({ _includes: { par: () => '<p>hi</p>' } });
+    expect(html).toBe('<section><p>hi</p></section>');
+  });
+
+  it('childClass still injects without decorationTagName', () => {
+    const src = `<sly data-sly-resource="\${'par' @ resourceType='mysite/components/hero'}"></sly>`;
+    const code = transpile(src, {
+      filename: 'test.html',
+      resourceWrappers: {
+        'mysite/components/hero': { childClass: 'cmp-hero-item' },
+      },
+    });
+    const mod: any = {};
+    new Function('module', code)(mod);
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
+    const html = fn({ _includes: { par: () => '<div class="cmp-hero">Content</div>' } });
+    expect(html).not.toContain('<div class="hero">');
+    expect(html).toContain('<div class="cmp-hero cmp-hero-item">Content</div>');
+  });
+
+  it('decorationTagName="false" disables the decoration wrapper', () => {
+    const src = `<sly data-sly-resource="\${'par' @ resourceType='mysite/components/hero', decorationTagName='false'}"></sly>`;
+    const code = transpile(src, {
+      filename: 'test.html',
+      resourceWrappers: { 'mysite/components/hero': { wrapper: 'hero', childClass: 'hero-item' } },
+    });
+    const mod: any = {};
+    new Function('module', code)(mod);
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
+    const html = fn({ _includes: { par: () => '<div class="cmp-hero">Content</div>' } });
+    expect(html).not.toContain('<hero');
+    expect(html).not.toContain('class="hero"');
+    // childClass still injected
+    expect(html).toContain('<div class="cmp-hero hero-item">Content</div>');
+  });
+
+  it('decoration=false suppresses the decoration wrapper', () => {
+    const src = `<sly data-sly-resource="\${'par' @ resourceType='mysite/components/hero', decorationTagName='div', decoration=false}"></sly>`;
+    const code = transpile(src, {
+      filename: 'test.html',
+      resourceWrappers: { 'mysite/components/hero': { wrapper: 'hero', childClass: 'hero-item' } },
+    });
+    const mod: any = {};
+    new Function('module', code)(mod);
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
+    const html = fn({ _includes: { par: () => '<div class="cmp-hero">Content</div>' } });
+    expect(html).not.toContain('<div class="hero">');
+    // childClass still injected even without decoration wrapper
+    expect(html).toContain('<div class="cmp-hero hero-item">Content</div>');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// transpile — _resourceDecorations runtime overrides
+// ---------------------------------------------------------------------------
+
+describe('transpile — _resourceDecorations', () => {
+  it('runtime _resourceDecorations injects cssClassName by resource key', () => {
+    // resourceType last segment = 'container' (auto-class), cssClassName = 'responsivegrid' → 'container responsivegrid'
+    const src = `<sly data-sly-resource="\${'responsivegrid' @ decorationTagName='div', resourceType='mysite/components/container/v1/container'}"></sly>`;
+    const code = transpile(src, { filename: 'test.html' });
+    const mod: any = {};
+    new Function('module', code)(mod);
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
+    const html = fn({
+      _includes: { responsivegrid: () => '<div>grid</div>' },
+      _resourceDecorations: { responsivegrid: { cssClassName: 'responsivegrid' } },
+    });
+    expect(html).toContain('<div class="container responsivegrid">');
+  });
+
+  it('runtime _resourceDecorations injects cssClassName without a prior decorationTagName', () => {
+    const src = `<sly data-sly-resource="\${'responsivegrid'}"></sly>`;
+    const code = transpile(src, { filename: 'test.html' });
+    const mod: any = {};
+    new Function('module', code)(mod);
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
+    const html = fn({
+      _includes: { responsivegrid: () => '<div>grid</div>' },
+      _resourceDecorations: { responsivegrid: { decorationTagName: 'div', cssClassName: 'aem-Grid' } },
+    });
+    expect(html).toContain('<div class="aem-Grid">');
+    expect(html).toContain('<div>grid</div>');
+  });
+
+  it('runtime _resourceDecorations matches by resourceType fallback', () => {
+    const src = `<sly data-sly-resource="\${'par' @ resourceType='mysite/components/responsivegrid'}"></sly>`;
+    const code = transpile(src, { filename: 'test.html' });
+    const mod: any = {};
+    new Function('module', code)(mod);
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
+    const html = fn({
+      _includes: { par: () => '<div>content</div>' },
+      _resourceDecorations: {
+        'mysite/components/responsivegrid': { decorationTagName: 'div', cssClassName: 'aem-Grid' },
+      },
+    });
+    expect(html).toContain('<div class="responsivegrid aem-Grid">');
+  });
+
+  it('runtime _resourceDecorations.decoration=false suppresses wrapper', () => {
+    const src = `<sly data-sly-resource="\${'par' @ decorationTagName='div', resourceType='mysite/components/hero'}"></sly>`;
+    const code = transpile(src, {
+      filename: 'test.html',
+      resourceWrappers: { 'mysite/components/hero': { wrapper: 'hero', childClass: 'hero-item' } },
+    });
+    const mod: any = {};
+    new Function('module', code)(mod);
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
+    const html = fn({
+      _includes: { par: () => '<div class="cmp-hero">Content</div>' },
+      _resourceDecorations: { 'mysite/components/hero': { decoration: false } },
+    });
+    expect(html).not.toContain('class="hero"');
+    expect(html).toContain('<div class="cmp-hero hero-item">Content</div>');
+  });
+
+  it('static resourceDecorations config works like _resourceWrappers compile-time', () => {
+    const src = `<sly data-sly-resource="\${'content' @ resourceType='wcm/foundation/components/responsivegrid'}"></sly>`;
+    const code = transpile(src, {
+      filename: 'test.html',
+      resourceDecorations: {
+        'wcm/foundation/components/responsivegrid': { decorationTagName: 'div', cssClassName: 'aem-Grid' },
+      },
+    });
+    const mod: any = {};
+    new Function('module', code)(mod);
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
+    const html = fn({ _includes: { content: () => '<div>col</div>' } });
+    expect(html).toContain('<div class="responsivegrid aem-Grid">');
+  });
+
+  it('runtime _resourceDecorations overrides static resourceDecorations', () => {
+    const src = `<sly data-sly-resource="\${'par' @ resourceType='mysite/components/grid'}"></sly>`;
+    const code = transpile(src, {
+      filename: 'test.html',
+      resourceDecorations: {
+        'mysite/components/grid': { decorationTagName: 'div', cssClassName: 'static-class' },
+      },
+    });
+    const mod: any = {};
+    new Function('module', code)(mod);
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
+    const html = fn({
+      _includes: { par: () => '<p>x</p>' },
+      _resourceDecorations: { 'mysite/components/grid': { decorationTagName: 'div', cssClassName: 'runtime-class' } },
+    });
+    expect(html).toContain('<div class="grid runtime-class">');
+    expect(html).not.toContain('static-class');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// transpile — auto-class from _includes fn.name
+// ---------------------------------------------------------------------------
+
+describe('transpile — auto-class from _includes fn.name', () => {
+  it('derives decoration class from createXxx function name', () => {
+    const src = `<sly data-sly-resource="\${'item1' @ decorationTagName='div'}"></sly>`;
+    const code = transpile(src, { filename: 'test.html' });
+    const mod: any = {};
+    new Function('module', code)(mod);
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
+    function createImage() { return '<img src="test.jpg">'; }
+    const html = fn({ _includes: { item1: createImage } });
+    expect(html).toContain('<div class="image">');
+    expect(html).toContain('<img src="test.jpg">');
+  });
+
+  it('uses camelCase fn name as-is (lowercased first letter)', () => {
+    const src = `<sly data-sly-resource="\${'item1' @ decorationTagName='div'}"></sly>`;
+    const code = transpile(src, { filename: 'test.html' });
+    const mod: any = {};
+    new Function('module', code)(mod);
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
+    function createResponsiveGrid() { return '<div>grid</div>'; }
+    const html = fn({ _includes: { item1: createResponsiveGrid } });
+    expect(html).toContain('<div class="responsiveGrid">');
+  });
+
+  it('fn.name class is overridden by explicit resourceType autoClass', () => {
+    const src = `<sly data-sly-resource="\${'item1' @ decorationTagName='div', resourceType='mysite/components/container'}"></sly>`;
+    const code = transpile(src, { filename: 'test.html' });
+    const mod: any = {};
+    new Function('module', code)(mod);
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
+    function createImage() { return '<p>text</p>'; }
+    const html = fn({ _includes: { item1: createImage } });
+    // resourceType wins over fn.name: 'container', not 'image'
+    expect(html).toContain('<div class="container">');
+    expect(html).not.toContain('image');
+  });
+
+  it('anonymous arrow fn produces no auto-class', () => {
+    const src = `<sly data-sly-resource="\${'item1' @ decorationTagName='div'}"></sly>`;
+    const code = transpile(src, { filename: 'test.html' });
+    const mod: any = {};
+    new Function('module', code)(mod);
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
+    const html = fn({ _includes: { item1: () => '<p>hi</p>' } });
+    expect(html).toContain('<div>');
+    expect(html).not.toMatch(/<div class=/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// transpile — _class on slot function return value
+// ---------------------------------------------------------------------------
+
+describe('transpile — _class on slot return value', () => {
+  it('derives decoration class from _class on returned object (toString protocol)', () => {
+    const src = `<sly data-sly-resource="\${'item1' @ decorationTagName='div'}"></sly>`;
+    const code = transpile(src, { filename: 'test.html' });
+    const mod: any = {};
+    new Function('module', code)(mod);
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
+    const slotResult = { toString: () => '<div>content</div>', _class: 'container' };
+    const html = fn({ _includes: { item1: () => slotResult } });
+    expect(html).toContain('<div class="container">');
+    expect(html).toContain('<div>content</div>');
+  });
+
+  it('_class propagates through wrapper chain', () => {
+    const src = `<sly data-sly-resource="\${'item1' @ decorationTagName='div'}"></sly>`;
+    const code = transpile(src, { filename: 'test.html' });
+    const mod: any = {};
+    new Function('module', code)(mod);
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
+    const innerResult = { toString: () => '<p>inner</p>', _class: 'container' };
+    const wrapper1 = () => wrapper2();
+    const wrapper2 = () => innerResult;
+    const html = fn({ _includes: { item1: wrapper1 } });
+    expect(html).toContain('<div class="container">');
+  });
+
+  it('_class on return value overrides fn.name-based class', () => {
+    const src = `<sly data-sly-resource="\${'item1' @ decorationTagName='div'}"></sly>`;
+    const code = transpile(src, { filename: 'test.html' });
+    const mod: any = {};
+    new Function('module', code)(mod);
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
+    const result = { toString: () => '<p>x</p>', _class: 'hero' };
+    function createContainer() { return result; }
+    const html = fn({ _includes: { item1: createContainer } });
+    // _class wins over fn.name ('container')
+    expect(html).toContain('<div class="hero">');
+    expect(html).not.toContain('container');
+  });
+});
 
 describe('transpile — AEM container + responsivegrid + column composition', () => {
   it('composes nested components with wrapperClass, resourceWrappers and _wrapperClass', () => {
     // ── Container component ──
-    const containerSrc = `<div class="cmp-container"><sly data-sly-resource="\${'responsivegrid'}"></sly></div>`;
+    const containerSrc = `<div class="cmp-container"><sly data-sly-resource="\${'responsivegrid' @ decorationTagName='div'}"></sly></div>`;
     const containerCode = transpile(containerSrc, {
       filename: '/apps/mysite/container/container.html',
       wrapperClass: true,
@@ -2630,14 +3121,14 @@ describe('transpile — AEM container + responsivegrid + column composition', ()
     const createColumn = Object.values(columnMod.exports)[0] as Function;
 
     // ── Compose at runtime ──
-    const html = createContainer({
+    const html = String(createContainer({
       _includes: {
         responsivegrid: () =>
           createColumn({
             _wrapperClass: 'aem-GridColumn aem-GridColumn--default--12',
           }),
       },
-    });
+    }));
 
     // Expected structure:
     // <div class="container">
@@ -2679,7 +3170,7 @@ describe('transpile — AEM container + responsivegrid + column composition', ()
 describe('transpile — AEM composition with separated config', () => {
   it('composes container + grid + column with resourceWrappers + wrapperClass', () => {
     // ── Container component (uses LayoutContainer model) ──
-    const containerSrc = `<div data-sly-use.container="com.example.LayoutContainer" class="cmp-container"><sly data-sly-resource="\${'responsivegrid'}"></sly></div>`;
+    const containerSrc = `<div data-sly-use.container="com.example.LayoutContainer" class="cmp-container"><sly data-sly-resource="\${'responsivegrid' @ decorationTagName='div'}"></sly></div>`;
     const containerCode = transpile(containerSrc, {
       filename: '/apps/mysite/container/container.html',
       wrapperClass: true,
@@ -2705,11 +3196,11 @@ describe('transpile — AEM composition with separated config', () => {
     const createColumn = Object.values(columnMod.exports)[0] as Function;
 
     // ── Compose at runtime ──
-    const html = createContainer({
+    const html = String(createContainer({
       _includes: {
         responsivegrid: () => createColumn(),
       },
-    });
+    }));
 
     expect(html).toContain('<div class="container">');
     expect(html).toContain('<div class="cmp-container">');
@@ -2734,7 +3225,7 @@ describe('transpile — AEM composition with separated config', () => {
   });
 
   it('childClass injects class when child has no existing class', () => {
-    const src = `<div><sly data-sly-resource="\${'responsivegrid'}"></sly></div>`;
+    const src = `<div><sly data-sly-resource="\${'responsivegrid' @ decorationTagName='div'}"></sly></div>`;
     const code = transpile(src, {
       filename: 'test.html',
       resourceWrappers: {
@@ -2746,7 +3237,7 @@ describe('transpile — AEM composition with separated config', () => {
     });
     const mod: any = {};
     new Function('module', code)(mod);
-    const fn = Object.values(mod.exports)[0] as Function;
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
     const html = fn({
       _includes: { responsivegrid: () => '<span>bare</span>' },
     });
@@ -2759,7 +3250,7 @@ describe('transpile — AEM composition with separated config', () => {
   });
 
   it('childClass applies to all root children, not just the first', () => {
-    const src = `<sly data-sly-resource="\${'grid' @ resourceType='mysite/components/responsivegrid'}"></sly>`;
+    const src = `<sly data-sly-resource="\${'grid' @ resourceType='mysite/components/responsivegrid', decorationTagName='div'}"></sly>`;
     const code = transpile(src, {
       filename: 'test.html',
       resourceWrappers: {
@@ -2771,7 +3262,7 @@ describe('transpile — AEM composition with separated config', () => {
     });
     const mod: any = {};
     new Function('module', code)(mod);
-    const fn = Object.values(mod.exports)[0] as Function;
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
     const html = fn({
       _includes: {
         grid: () =>
@@ -2799,7 +3290,7 @@ describe('transpile — AEM composition with separated config', () => {
     });
     const mod: any = {};
     new Function('module', code)(mod);
-    const fn = Object.values(mod.exports)[0] as Function;
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
     const html = fn({
       _includes: {
         grid: () => '<div>A</div><span>B</span>',
@@ -2831,7 +3322,7 @@ describe('transpile — fileOverrides', () => {
     });
     const mod: any = {};
     new Function('module', code)(mod);
-    const fn = Object.values(mod.exports)[0] as Function;
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
     const html = fn({ _includes: { content: () => '<p>Hello</p>' } });
     expect(html).toContain('<p>Hello</p>');
     // Should NOT contain require() calls
@@ -2851,7 +3342,7 @@ describe('transpile — fileOverrides', () => {
     });
     const mod: any = {};
     new Function('module', code)(mod);
-    const fn = Object.values(mod.exports)[0] as Function;
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
 
     // Use default from fileOverrides
     const html1 = fn();
@@ -2887,7 +3378,7 @@ describe('transpile — fileOverrides', () => {
     });
     const mod: any = {};
     new Function('module', code)(mod);
-    const fn = Object.values(mod.exports)[0] as Function;
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
     const html = fn({
       _includes: { content: () => '<div class="child">OK</div>' },
     });
@@ -2912,7 +3403,7 @@ describe('transpile — fileOverrides', () => {
     });
     const mod: any = {};
     new Function('module', code)(mod);
-    const fn = Object.values(mod.exports)[0] as Function;
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
     expect(fn({ variant: 'one' })).toContain('<b>Hi</b>');
     expect(fn({ variant: 'two' })).toContain('<i>Hi</i>');
   });
@@ -2945,7 +3436,7 @@ describe('transpile — fileOverrides', () => {
 
     const mod: any = {};
     new Function('module', code)(mod);
-    const fn = Object.values(mod.exports)[0] as Function;
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
     const html = fn({
       container: { id: 'cq-1' },
       _includes: { content: () => '<p>Hello</p>' },
@@ -2981,7 +3472,7 @@ describe('transpile — fileOverrides', () => {
 
     const mod: any = {};
     new Function('module', 'require', code)(mod, fakeRequire);
-    const fn = Object.values(mod.exports)[0] as Function;
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
     const html = fn({ model: { tabsTemplate: 'vertical' } });
 
     expect(requests).toContain('./tabs-vertical.html');
@@ -3011,7 +3502,7 @@ describe('transpile — fileOverrides', () => {
 
     const mod: any = {};
     new Function('module', 'require', code)(mod, htmlAwareRequire);
-    const fn = Object.values(mod.exports)[0] as Function;
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
     const html = fn({ model: { tabsTemplate: 'vertical' } });
 
     expect(html).toContain('cmp-tabs--vertical');
@@ -3039,7 +3530,7 @@ describe('transpile — fileOverrides', () => {
           htl: [
             '<template data-sly-template.responsiveGrid="${ @ container }">',
             '  <div id="${container.id}" class="cmp-container">',
-            '    <sly data-sly-resource="${\'content\' @ resourceType=\'wcm/foundation/components/responsivegrid\'}"></sly>',
+            '    <sly data-sly-resource="${\'content\' @ resourceType=\'wcm/foundation/components/responsivegrid\', decorationTagName=\'div\'}"></sly>',
             '  </div>',
             '</template>',
           ].join('\n'),
@@ -3048,7 +3539,7 @@ describe('transpile — fileOverrides', () => {
     });
     const mod: any = {};
     new Function('module', code)(mod);
-    const fn = Object.values(mod.exports)[0] as Function;
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
     const html = fn({
       container: { id: 'cq-1' },
       _includes: { content: () => '<div class="cmp-column">Text</div>' },
@@ -3082,7 +3573,7 @@ describe('transpile — modelTransforms _includes', () => {
     });
     const mod: any = {};
     new Function('module', code)(mod);
-    const fn = Object.values(mod.exports)[0] as Function;
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
     const html = fn({
       model: {
         columns: [
@@ -3110,7 +3601,7 @@ describe('transpile — modelTransforms _includes', () => {
     });
     const mod: any = {};
     new Function('module', code)(mod);
-    const fn = Object.values(mod.exports)[0] as Function;
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
     // Runtime _includes for 'extra' merges with computed 'slot-a'
     const html = fn({ _includes: { extra: () => '<i>runtime</i>' } });
     expect(html).toContain('<b>computed</b>');
@@ -3134,7 +3625,7 @@ describe('modelTransforms — classKey strict matching', () => {
     });
     const mod: any = {};
     new Function('module', code)(mod);
-    const fn = Object.values(mod.exports)[0] as Function;
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
     // The Tabs transform must NOT have run — extraProp should not be on tabs
     const html = fn({ tabs: { title: 'Hello' } });
     expect(html).toContain('Hello');
@@ -3151,7 +3642,7 @@ describe('modelTransforms — classKey strict matching', () => {
     });
     const mod: any = {};
     new Function('module', code)(mod);
-    const fn = Object.values(mod.exports)[0] as Function;
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
     expect(fn({ tabs: {} })).toContain('injected');
   });
 
@@ -3165,7 +3656,7 @@ describe('modelTransforms — classKey strict matching', () => {
     });
     const mod: any = {};
     new Function('module', code)(mod);
-    const fn = Object.values(mod.exports)[0] as Function;
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
     expect(fn({ tabs: {} })).toContain('fqn-match');
   });
 });
@@ -3188,7 +3679,7 @@ describe('modelTransforms — varName binding in _includes function', () => {
     expect(code).not.toContain('[object Object]');
     const mod: any = {};
     new Function('module', code)(mod);
-    const fn = Object.values(mod.exports)[0] as Function;
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
     expect(fn({ tabs: { label: 'Tab label' } })).toContain('<p>Tab label</p>');
   });
 
@@ -3207,7 +3698,7 @@ describe('modelTransforms — varName binding in _includes function', () => {
     expect(code).not.toContain('[object Object]');
     const mod: any = {};
     new Function('module', code)(mod);
-    const fn = Object.values(mod.exports)[0] as Function;
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
     expect(fn({ tabs: { name: 'My Tab' } })).toContain('<span>My Tab</span>');
   });
 });
@@ -3241,7 +3732,7 @@ describe('modelTransforms — array-of-items pattern (tabs / accordion / carouse
     expect(code).not.toContain('[object Object]');
     const mod: any = {};
     new Function('module', code)(mod);
-    const fn = Object.values(mod.exports)[0] as Function;
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
 
     const html = fn({
       component: {
@@ -3280,7 +3771,7 @@ describe('modelTransforms — array-of-items pattern (tabs / accordion / carouse
 
     const mod: any = {};
     new Function('module', code)(mod);
-    const fn = Object.values(mod.exports)[0] as Function;
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
 
     // _includes.tab-1 from story overrides the transformer
     const html = fn({
@@ -3298,7 +3789,7 @@ describe('transpile — content shorthand parameter', () => {
     const code = transpile(src, { filename: 'test.html' });
     const mod: any = {};
     new Function('module', code)(mod);
-    const fn = Object.values(mod.exports)[0] as Function;
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
 
     // Pass content directly — no _includes wrapper needed
     const html = fn({ model: {}, content: () => '<p>some content</p>' });
@@ -3310,7 +3801,7 @@ describe('transpile — content shorthand parameter', () => {
     const code = transpile(src, { filename: 'test.html' });
     const mod: any = {};
     new Function('module', code)(mod);
-    const fn = Object.values(mod.exports)[0] as Function;
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
 
     const html = fn({
       content: () => '<p>from-shorthand</p>',
@@ -3325,7 +3816,7 @@ describe('transpile — content shorthand parameter', () => {
     const code = transpile(src, { filename: 'test.html' });
     const mod: any = {};
     new Function('module', code)(mod);
-    const fn = Object.values(mod.exports)[0] as Function;
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
 
     expect(fn({ content: '<p>str content</p>' })).toContain('<p>str content</p>');
   });
@@ -3335,7 +3826,7 @@ describe('transpile — content shorthand parameter', () => {
     const code = transpile(src, { filename: 'test.html' });
     const mod: any = {};
     new Function('module', code)(mod);
-    const fn = Object.values(mod.exports)[0] as Function;
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
 
     const html = fn({
       model: { src: '/hero.jpg', caption: 'Hero' },
@@ -3355,7 +3846,7 @@ describe('transpile — content shorthand parameter', () => {
     const code = transpile(src, { filename: 'test.html' });
     const mod: any = {};
     new Function('module', code)(mod);
-    const fn = Object.values(mod.exports)[0] as Function;
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
 
     const html = fn({
       fragment: { localizedPath: '/content/fragment/en' },
@@ -3377,7 +3868,7 @@ describe('transpile — content shorthand parameter', () => {
     const code = transpile(src, { filename: 'test.html' });
     const mod: any = {};
     new Function('module', code)(mod);
-    const fn = Object.values(mod.exports)[0] as Function;
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
 
     const html = fn({
       model: { items: [{ path: 'nav-a' }, { path: 'nav-b' }] },
@@ -3400,7 +3891,7 @@ describe('transpile — content shorthand parameter', () => {
     expect(code).not.toMatch(/\bmodel\s*=/);
     const mod: any = {};
     new Function('module', code)(mod);
-    const fn = Object.values(mod.exports)[0] as Function;
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
 
     const html = fn({ content: () => '<p>no-model</p>' });
     expect(html).toContain('<p>no-model</p>');
@@ -3416,7 +3907,7 @@ describe('transpile — content shorthand parameter', () => {
     const code = transpile(src, { filename: 'test.html' });
     const mod: any = {};
     new Function('module', code)(mod);
-    const fn = Object.values(mod.exports)[0] as Function;
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
 
     // Passing a populated model object must NOT trigger _includes spreading
     const html = fn({ content: { title: 'Hello', id: '123' }, _includes: { slot: () => '<span>ok</span>' } });
@@ -3439,7 +3930,7 @@ describe('transpile — content shorthand parameter', () => {
     const code = transpile(src, { filename: 'test.html' });
     const mod: any = {};
     new Function('module', code)(mod);
-    const fn = Object.values(mod.exports)[0] as Function;
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
 
     // Passing a populated object as _rest must NOT be spread into _includes
     const html = fn({ model: { tag: 'article' }, _includes: { slot: () => '<span>child</span>' } });
@@ -3461,7 +3952,7 @@ describe('transpile — content shorthand parameter', () => {
     const code = transpile(src, { filename: 'test.html' });
     const mod: any = {};
     new Function('module', code)(mod);
-    const fn = Object.values(mod.exports)[0] as Function;
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
 
     const html = fn({ model: { visible: true }, _includes: { slot: () => '<span>child</span>' } });
     expect(html).toContain('visible');
@@ -3480,7 +3971,7 @@ describe('transpile — content shorthand parameter', () => {
     const mod: any = {};
     new Function('module', code)(mod);
     // extra is in _rest and flows down via ..._rest to inner
-    const html = mod.exports.createOuter({ item: 'hello', extra: 'x' });
+    const html = String(mod.exports.createOuter({ item: 'hello', extra: 'x' }));
     expect(html).toContain('<div>hello</div>');
   });
 
@@ -3498,7 +3989,7 @@ describe('transpile — content shorthand parameter', () => {
     expect(code).toMatch(/\bcontent\s*=/);
     const mod: any = {};
     new Function('module', code)(mod);
-    const fn = Object.values(mod.exports)[0] as Function;
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
 
     const html = fn({ content: () => '<p>body</p>' });
     expect(html).toContain('<p>body</p>');
@@ -3522,7 +4013,7 @@ describe('modelTransforms — content binding (typeof check / the canonical use 
     const code = transpile(src, { filename: 'test.html', modelTransforms: makeTransform() });
     const mod: any = {};
     new Function('module', code)(mod);
-    const fn = Object.values(mod.exports)[0] as Function;
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
     // pass content at top level — no _includes wrapper
     const html = fn({ content: () => '<p>fn-content</p>' });
     expect(html).toContain('<p>fn-content</p>');
@@ -3533,7 +4024,7 @@ describe('modelTransforms — content binding (typeof check / the canonical use 
     const code = transpile(src, { filename: 'test.html', modelTransforms: makeTransform() });
     const mod: any = {};
     new Function('module', code)(mod);
-    const fn = Object.values(mod.exports)[0] as Function;
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
     const html = fn({ content: '<p>str-content</p>' });
     expect(html).toContain('<p>str-content</p>');
   });
@@ -3543,8 +4034,88 @@ describe('modelTransforms — content binding (typeof check / the canonical use 
     const code = transpile(src, { filename: 'test.html', modelTransforms: makeTransform() });
     const mod: any = {};
     new Function('module', code)(mod);
-    const fn = Object.values(mod.exports)[0] as Function;
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
     expect(fn({})).toBe('<div></div>');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// content shorthand — array and enriched-object distribution
+// ---------------------------------------------------------------------------
+
+describe('transpile — content shorthand array and enriched object', () => {
+  it('content: 1D array with single slot → items concatenated', () => {
+    const src = `<sly data-sly-resource="${'par'}"></sly>`;
+    const code = transpile(src, { filename: 'test.html' });
+    const mod: any = {};
+    new Function('module', code)(mod);
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
+    const html = fn({ content: ['<p>first</p>', '<p>second</p>'] });
+    expect(html).toBe('<p>first</p><p>second</p>');
+  });
+
+  it('content: 1D array with N slots (par_0, par_1) → one item per slot', () => {
+    const src = `<sly data-sly-resource="${'par_0'}"></sly><sly data-sly-resource="${'par_1'}"></sly>`;
+    const code = transpile(src, { filename: 'test.html' });
+    const mod: any = {};
+    new Function('module', code)(mod);
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
+    const html = fn({ content: ['<p>first</p>', '<p>second</p>'] });
+    expect(html).toBe('<p>first</p><p>second</p>');
+  });
+
+  it('content: 2D array with N slots → outer items distributed, inner items concatenated', () => {
+    const src = `<sly data-sly-resource="${'par_0'}"></sly><sly data-sly-resource="${'par_1'}"></sly>`;
+    const code = transpile(src, { filename: 'test.html' });
+    const mod: any = {};
+    new Function('module', code)(mod);
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
+    const html = fn({ content: [['<span>a</span>', '<span>b</span>'], ['<span>c</span>']] });
+    expect(html).toBe('<span>a</span><span>b</span><span>c</span>');
+  });
+
+  it('content: single enriched object → rendered via toString()', () => {
+    const src = `<sly data-sly-resource="${'par'}"></sly>`;
+    const code = transpile(src, { filename: 'test.html' });
+    const mod: any = {};
+    new Function('module', code)(mod);
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
+    const enriched = { toString: () => '<div>enriched</div>', _class: 'text', _resourceType: null, _slots: undefined, _decorationTagName: undefined, _attrs: {} };
+    const html = fn({ content: enriched });
+    expect(html).toContain('<div>enriched</div>');
+  });
+
+  it('content: array of enriched objects with N slots → one per slot via toString()', () => {
+    const src = `<sly data-sly-resource="${'par_0'}"></sly><sly data-sly-resource="${'par_1'}"></sly>`;
+    const code = transpile(src, { filename: 'test.html' });
+    const mod: any = {};
+    new Function('module', code)(mod);
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
+    const e0 = { toString: () => '<div>text</div>', _class: 'text', _resourceType: null, _slots: undefined, _decorationTagName: undefined, _attrs: {} };
+    const e1 = { toString: () => '<figure>image</figure>', _class: 'image', _resourceType: null, _slots: undefined, _decorationTagName: undefined, _attrs: {} };
+    const html = fn({ content: [e0, e1] });
+    expect(html).toBe('<div>text</div><figure>image</figure>');
+  });
+
+  it('content: fn returning 1D array with N slots → distributed', () => {
+    const src = `<sly data-sly-resource="${'par_0'}"></sly><sly data-sly-resource="${'par_1'}"></sly>`;
+    const code = transpile(src, { filename: 'test.html' });
+    const mod: any = {};
+    new Function('module', code)(mod);
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
+    const html = fn({ content: () => ['<p>first</p>', '<p>second</p>'] });
+    expect(html).toBe('<p>first</p><p>second</p>');
+  });
+
+  it('content: string with N slots → appears only in par_0 (no array to distribute)', () => {
+    const src = `<sly data-sly-resource="${'par_0'}"></sly><sly data-sly-resource="${'par_1'}"></sly>`;
+    const code = transpile(src, { filename: 'test.html' });
+    const mod: any = {};
+    new Function('module', code)(mod);
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
+    // string assigned to base key 'par'; _incSlot uses it only for index 0
+    const html = fn({ content: '<p>only first</p>' });
+    expect(html).toBe('<p>only first</p>');
   });
 });
 
@@ -3572,7 +4143,7 @@ describe('modelTransforms — content binding', () => {
 
     const mod: any = {};
     new Function('module', code)(mod);
-    const fn = Object.values(mod.exports)[0] as Function;
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
 
     const html = fn({ model: { nav: 'Nav' }, content: () => '<p>Page body</p>' });
     expect(html).toContain('<p>Page body</p>');
@@ -3593,7 +4164,7 @@ describe('modelTransforms — content binding', () => {
     });
     const mod: any = {};
     new Function('module', code)(mod);
-    const fn = Object.values(mod.exports)[0] as Function;
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
 
     // story passes content directly
     expect(fn({ content: () => '<p>inner</p>' })).toContain('<p>inner</p>');
@@ -3613,7 +4184,7 @@ describe('modelTransforms — content binding', () => {
     });
     const mod: any = {};
     new Function('module', code)(mod);
-    const fn = Object.values(mod.exports)[0] as Function;
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
     expect(fn({})).toContain('<div></div>');
   });
 });
@@ -3652,7 +4223,7 @@ describe('modelTransforms — arbitrary _rest bindings', () => {
 
     const mod: any = {};
     new Function('module', code)(mod);
-    const fn = Object.values(mod.exports)[0] as Function;
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
 
     const html = fn({
       fragment: { localizedFragmentVariationPath: 'lightbox-fragment' },
@@ -3681,7 +4252,7 @@ describe('modelTransforms — arbitrary _rest bindings', () => {
 
     const mod: any = {};
     new Function('module', code)(mod);
-    const fn = Object.values(mod.exports)[0] as Function;
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
 
     expect(fn({ fragment: { name: 'hero' } })).toContain('<p>hero</p>');
   });
@@ -3709,7 +4280,7 @@ describe('convertExpr — @ urlencode', () => {
     const code = transpile(src, { filename: 'test.html' });
     const mod: any = {};
     new Function('module', code)(mod);
-    const fn = Object.values(mod.exports)[0] as Function;
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
     const html = fn({ model: { query: 'hello world & more' } });
     expect(html).toContain('hello%20world%20%26%20more');
   });
@@ -3725,7 +4296,7 @@ describe('transpile — _incSlot array fallback', () => {
     const code = transpile(src, { filename: 'test.html' });
     const mod: any = {};
     new Function('module', code)(mod);
-    const fn = Object.values(mod.exports)[0] as Function;
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
     const html = fn({
       _includes: {
         par: () => ['<p>first</p>', '<p>second</p>'],
@@ -3740,7 +4311,7 @@ describe('transpile — _incSlot array fallback', () => {
     const code = transpile(src, { filename: 'test.html' });
     const mod: any = {};
     new Function('module', code)(mod);
-    const fn = Object.values(mod.exports)[0] as Function;
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
     const html = fn({
       _includes: {
         par_0: () => '<p>exact</p>',
@@ -3756,7 +4327,7 @@ describe('transpile — _incSlot array fallback', () => {
     const code = transpile(src, { filename: 'test.html' });
     const mod: any = {};
     new Function('module', code)(mod);
-    const fn = Object.values(mod.exports)[0] as Function;
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
     const html = fn({
       _includes: {
         par: ['<p>plain</p>'],
@@ -3770,7 +4341,7 @@ describe('transpile — _incSlot array fallback', () => {
     const code = transpile(src, { filename: 'test.html' });
     const mod: any = {};
     new Function('module', code)(mod);
-    const fn = Object.values(mod.exports)[0] as Function;
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
     const html = fn({ _includes: { par: () => ['only one'] } });
     expect(html).toBe('');
   });
@@ -3780,7 +4351,7 @@ describe('transpile — _incSlot array fallback', () => {
     const code = transpile(src, { filename: 'test.html' });
     const mod: any = {};
     new Function('module', code)(mod);
-    const fn = Object.values(mod.exports)[0] as Function;
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
     const html = fn({
       _includes: {
         'navgroup/par': () => ['<div>col0</div>', '<div>col1</div>'],
@@ -3795,7 +4366,7 @@ describe('transpile — _incSlot array fallback', () => {
     const code = transpile(src, { filename: 'test.html' });
     const mod: any = {};
     new Function('module', code)(mod);
-    const fn = Object.values(mod.exports)[0] as Function;
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
     const html = fn({ _includes: { header: ['<nav>A</nav>', '<nav>B</nav>'] } });
     expect(html).toBe('<nav>A</nav><nav>B</nav>');
   });
@@ -3805,7 +4376,7 @@ describe('transpile — _incSlot array fallback', () => {
     const code = transpile(src, { filename: 'test.html' });
     const mod: any = {};
     new Function('module', code)(mod);
-    const fn = Object.values(mod.exports)[0] as Function;
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
     const html = fn({
       _includes: {
         par: () => [['<span>a</span>', '<span>b</span>'], ['<span>c</span>', '<span>d</span>']],
@@ -3819,7 +4390,7 @@ describe('transpile — _incSlot array fallback', () => {
     const code = transpile(src, { filename: 'test.html' });
     const mod: any = {};
     new Function('module', code)(mod);
-    const fn = Object.values(mod.exports)[0] as Function;
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
     const html = fn({ _includes: { items: () => ['<li>x</li>', '<li>y</li>'] } });
     expect(html).toBe('<li>x</li><li>y</li>');
   });
@@ -3841,7 +4412,7 @@ describe('transpile — __slots__', () => {
   it('does not export __slots__ when there are no static slots', () => {
     const src = `<div>\${model.title}</div>`;
     const code = transpile(src, { filename: 'test.html' });
-    expect(code).not.toContain('__slots__');
+    expect(code).not.toContain('const __slots__');
   });
 
   it('does not include dynamic slot keys', () => {
@@ -3974,7 +4545,7 @@ describe('transpile — modelTransforms with function values', () => {
     });
     const mod: any = {};
     new Function('module', code)(mod);
-    const fn = Object.values(mod.exports)[0] as Function;
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
     // default from transform
     expect(fn({ model: {} })).toContain('class="dark"');
     // runtime override wins
@@ -4038,7 +4609,7 @@ describe('transpile — modelTransforms with function values', () => {
     });
     const mod: any = {};
     new Function('module', code)(mod);
-    const fn = Object.values(mod.exports)[0] as Function;
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
     expect(fn({ page: {} })).toContain('content');
   });
 
@@ -4129,7 +4700,7 @@ describe('transpile — i18nDict option', () => {
     const code = transpile(src, { filename: 'test.html', i18nDict: dict });
     const mod: any = {};
     new Function('module', code)(mod);
-    const fn = Object.values(mod.exports)[0] as Function;
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
     // no _i18n arg — uses the baked-in default
     expect(fn({})).toContain('Leer más');
   });
@@ -4139,7 +4710,7 @@ describe('transpile — i18nDict option', () => {
     const code = transpile(src, { filename: 'test.html', i18nDict: dict });
     const mod: any = {};
     new Function('module', code)(mod);
-    const fn = Object.values(mod.exports)[0] as Function;
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
     expect(fn({ _i18n: { 'Read more': 'En savoir plus' } })).toContain('En savoir plus');
   });
 
@@ -4148,7 +4719,7 @@ describe('transpile — i18nDict option', () => {
     const code = transpile(src, { filename: 'test.html', i18nDict: dict });
     const mod: any = {};
     new Function('module', code)(mod);
-    const fn = Object.values(mod.exports)[0] as Function;
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
     expect(fn({})).toContain('Submit');
   });
 });
@@ -4174,7 +4745,7 @@ describe('i18n — end-to-end from XML file', () => {
     const code = transpile(src, { filename: 'test.html', i18nDict: dict });
     const mod: any = {};
     new Function('module', code)(mod);
-    const fn = Object.values(mod.exports)[0] as Function;
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
     const html = fn({});
     expect(html).toContain('Título');
     expect(html).toContain('Leer más');
@@ -4187,7 +4758,7 @@ describe('i18n — end-to-end from XML file', () => {
     const code = transpile(src, { filename: 'test.html', i18nDict: dict });
     const mod: any = {};
     new Function('module', code)(mod);
-    const fn = Object.values(mod.exports)[0] as Function;
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
     const html = fn({ model: { label: 'Read more' } });
     expect(html).toContain('Leer más');
   });
@@ -4197,7 +4768,7 @@ describe('i18n — end-to-end from XML file', () => {
     const code = transpile(src, { filename: 'test.html', i18nDict: dict });
     const mod: any = {};
     new Function('module', code)(mod);
-    const fn = Object.values(mod.exports)[0] as Function;
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
     expect(fn({ _i18n: { Title: 'Titolo' } })).toContain('Titolo');
   });
 
@@ -4206,7 +4777,7 @@ describe('i18n — end-to-end from XML file', () => {
     const code = transpile(src, { filename: 'test.html', i18nDict: dict });
     const mod: any = {};
     new Function('module', code)(mod);
-    const fn = Object.values(mod.exports)[0] as Function;
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
     expect(fn({})).toContain('Subscribe');
   });
 });
@@ -4236,7 +4807,7 @@ describe('data-sly-use — JSON file resolution', () => {
     });
     const mod: any = {};
     new Function('module', 'require', code)(mod, fixturesRequire);
-    const fn = Object.values(mod.exports)[0] as Function;
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
     expect(fn({})).toContain('Default Title');
   });
 
@@ -4247,7 +4818,7 @@ describe('data-sly-use — JSON file resolution', () => {
     });
     const mod: any = {};
     new Function('module', 'require', code)(mod, fixturesRequire);
-    const fn = Object.values(mod.exports)[0] as Function;
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
     expect(fn({ model: { title: 'Override' } })).toContain('Override');
   });
 });
@@ -4269,7 +4840,7 @@ describe('data-sly-use — JS module (plain object) file resolution', () => {
     });
     const mod: any = {};
     new Function('module', 'require', code)(mod, fixturesRequire);
-    const fn = Object.values(mod.exports)[0] as Function;
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
     expect(fn({})).toContain('Model Title');
   });
 
@@ -4280,7 +4851,7 @@ describe('data-sly-use — JS module (plain object) file resolution', () => {
     });
     const mod: any = {};
     new Function('module', 'require', code)(mod, fixturesRequire);
-    const fn = Object.values(mod.exports)[0] as Function;
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
     expect(fn({ model: { title: 'Overridden' } })).toContain('Overridden');
   });
 });
@@ -4306,7 +4877,7 @@ describe('data-sly-use — interpolated JS / JSON file resolution', () => {
 
     const mod: any = {};
     new Function('module', 'require', code)(mod, fakeRequire);
-    const fn = Object.values(mod.exports)[0] as Function;
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
     expect(fn({ variant: 'model' })).toContain('Dynamic JS Title');
     expect(requests).toContain('./card-model.js');
   });
@@ -4331,7 +4902,7 @@ describe('data-sly-use — interpolated JS / JSON file resolution', () => {
 
     const mod: any = {};
     new Function('module', 'require', code)(mod, fakeRequire);
-    const fn = Object.values(mod.exports)[0] as Function;
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
     expect(fn({ variant: 'model' })).toContain('Dynamic JSON Title');
     expect(requests).toContain('./card-model.json');
   });
@@ -4345,7 +4916,7 @@ describe('data-sly-use — JS factory function file resolution', () => {
     });
     const mod: any = {};
     new Function('module', 'require', code)(mod, fixturesRequire);
-    const fn = Object.values(mod.exports)[0] as Function;
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
     expect(fn({})).toContain('Factory Title');
   });
 
@@ -4356,7 +4927,7 @@ describe('data-sly-use — JS factory function file resolution', () => {
     });
     const mod: any = {};
     new Function('module', 'require', code)(mod, fixturesRequire);
-    const fn = Object.values(mod.exports)[0] as Function;
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
     expect(fn({ model: { title: 'My Custom Title' } })).toContain('My Custom Title');
   });
 });
@@ -4444,7 +5015,7 @@ describe('transpile — i18nFallbackDicts option', () => {
     });
     const mod: any = {};
     new Function('module', code)(mod);
-    const fn = Object.values(mod.exports)[0] as Function;
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
     expect(fn({})).toContain('Hola'); // primary wins
   });
 
@@ -4457,7 +5028,7 @@ describe('transpile — i18nFallbackDicts option', () => {
     });
     const mod: any = {};
     new Function('module', code)(mod);
-    const fn = Object.values(mod.exports)[0] as Function;
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
     expect(fn({})).toContain('Au revoir');
   });
 
@@ -4470,7 +5041,7 @@ describe('transpile — i18nFallbackDicts option', () => {
     });
     const mod: any = {};
     new Function('module', code)(mod);
-    const fn = Object.values(mod.exports)[0] as Function;
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
     expect(fn({})).toContain('Subscribe');
   });
 });
@@ -4507,7 +5078,7 @@ describe('transpile — i18n pluralization end-to-end', () => {
     const code = transpile(src, { filename: 'test.html', i18nDict: dict });
     const mod: any = {};
     new Function('module', code)(mod);
-    const fn = Object.values(mod.exports)[0] as Function;
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
     expect(fn({ n: 1 })).toContain('element');
     expect(fn({ n: 1 })).not.toContain('elements');
   });
@@ -4517,7 +5088,7 @@ describe('transpile — i18n pluralization end-to-end', () => {
     const code = transpile(src, { filename: 'test.html', i18nDict: dict });
     const mod: any = {};
     new Function('module', code)(mod);
-    const fn = Object.values(mod.exports)[0] as Function;
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
     expect(fn({ n: 5 })).toContain('5 elements');
   });
 
@@ -4527,7 +5098,7 @@ describe('transpile — i18n pluralization end-to-end', () => {
     const code = transpile(src, { filename: 'test.html', i18nDict: dictNoPl });
     const mod: any = {};
     new Function('module', code)(mod);
-    const fn = Object.values(mod.exports)[0] as Function;
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
     expect(fn({ n: 3 })).toContain('Artikel');
   });
 
@@ -4536,7 +5107,7 @@ describe('transpile — i18n pluralization end-to-end', () => {
     const code = transpile(src, { filename: 'test.html' });
     const mod: any = {};
     new Function('module', code)(mod);
-    const fn = Object.values(mod.exports)[0] as Function;
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
     expect(fn({ n: 2 })).toContain('item');
   });
 
@@ -4545,7 +5116,7 @@ describe('transpile — i18n pluralization end-to-end', () => {
     const code = transpile(src, { filename: 'test.html', i18nDict: dict });
     const mod: any = {};
     new Function('module', code)(mod);
-    const fn = Object.values(mod.exports)[0] as Function;
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
     expect(fn({ model: { count: 7 } })).toContain('7 elements');
   });
 });
@@ -4632,7 +5203,7 @@ describe('transpile — _htlIn helper (in operator)', () => {
     expect(code).toContain('_htlIn(');
     const mod: any = {};
     new Function('module', code)(mod);
-    const fn = Object.values(mod.exports)[0] as Function;
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
     expect(fn({ model: { needle: 'ab', haystack: 'abc' } })).toContain('found');
     expect(fn({ model: { needle: 'd', haystack: 'abc' } })).not.toContain('found');
   });
@@ -4643,7 +5214,7 @@ describe('transpile — _htlIn helper (in operator)', () => {
     expect(code).toContain('_htlIn(');
     const mod: any = {};
     new Function('module', code)(mod);
-    const fn = Object.values(mod.exports)[0] as Function;
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
     expect(fn({ model: { needle: 100, haystack: [100, 200, 300] } })).toContain('found');
     expect(fn({ model: { needle: 1, haystack: [100, 200, 300] } })).not.toContain('found');
   });
@@ -4653,7 +5224,7 @@ describe('transpile — _htlIn helper (in operator)', () => {
     const code = transpile(src, { filename: 'test.html' });
     const mod: any = {};
     new Function('module', code)(mod);
-    const fn = Object.values(mod.exports)[0] as Function;
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
     expect(() => fn({ model: { needle: 1 } })).not.toThrow();
     expect(fn({ model: { needle: 1 } })).not.toContain('found');
   });
@@ -4669,7 +5240,7 @@ describe('transpile — _htlAttr array rendering', () => {
     const code = transpile(src, { filename: 'test.html' });
     const mod: any = {};
     new Function('module', code)(mod);
-    const fn = Object.values(mod.exports)[0] as Function;
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
     const html = fn({ model: { tags: ['one', 'two', 'three'] } });
     expect(html).toContain('title="one,two,three"');
   });
@@ -4679,7 +5250,7 @@ describe('transpile — _htlAttr array rendering', () => {
     const code = transpile(src, { filename: 'test.html' });
     const mod: any = {};
     new Function('module', code)(mod);
-    const fn = Object.values(mod.exports)[0] as Function;
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
     const html = fn({ model: { tags: ['<foo>', '&bar'] } });
     expect(html).toContain('&lt;foo&gt;');
     expect(html).toContain('&amp;bar');
@@ -4691,7 +5262,7 @@ describe('transpile — _htlAttr array rendering', () => {
     const code = transpile(src, { filename: 'test.html' });
     const mod: any = {};
     new Function('module', code)(mod);
-    const fn = Object.values(mod.exports)[0] as Function;
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
     const html = fn({ model: { config: { a: 1 } } });
     expect(html).toContain('&quot;a&quot;');
   });
@@ -4738,7 +5309,7 @@ describe('transpile — data-sly-test with no value', () => {
     const code = transpile(src, { filename: 'test.html' });
     const mod: any = {};
     new Function('module', code)(mod);
-    const fn = Object.values(mod.exports)[0] as Function;
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
     const html = fn({});
     expect(html).toBe('');
   });
@@ -4748,7 +5319,7 @@ describe('transpile — data-sly-test with no value', () => {
     const code = transpile(src, { filename: 'test.html' });
     const mod: any = {};
     new Function('module', code)(mod);
-    const fn = Object.values(mod.exports)[0] as Function;
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
     expect(fn({ show: true })).toContain('visible');
     expect(fn({ show: false })).toBe('');
   });
@@ -4764,7 +5335,7 @@ describe('transpile — data-sly-list empty list visibility', () => {
     const code = transpile(src, { filename: 'test.html' });
     const mod: any = {};
     new Function('module', code)(mod);
-    const fn = Object.values(mod.exports)[0] as Function;
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
     const html = fn({ items: [] });
     expect(html).toBe('');
   });
@@ -4774,7 +5345,7 @@ describe('transpile — data-sly-list empty list visibility', () => {
     const code = transpile(src, { filename: 'test.html' });
     const mod: any = {};
     new Function('module', code)(mod);
-    const fn = Object.values(mod.exports)[0] as Function;
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
     const html = fn({ items: ['a', 'b'] });
     expect(html).toContain('<ul>');
     expect(html).toContain('<li>a</li>');
@@ -4787,7 +5358,7 @@ describe('transpile — data-sly-list empty list visibility', () => {
     const code = transpile(src, { filename: 'test.html' });
     const mod: any = {};
     new Function('module', code)(mod);
-    const fn = Object.values(mod.exports)[0] as Function;
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
     expect(fn({ items: null })).toBe('');
     expect(fn({})).toBe('');
   });
@@ -4803,7 +5374,7 @@ describe('transpile — context=number in attribute', () => {
     const code = transpile(src, { filename: 'test.html' });
     const mod: any = {};
     new Function('module', code)(mod);
-    const fn = Object.values(mod.exports)[0] as Function;
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
     const html = fn({ qttMin: 5 });
     expect(html).toContain('min="5"');
   });
@@ -4813,7 +5384,7 @@ describe('transpile — context=number in attribute', () => {
     const code = transpile(src, { filename: 'test.html' });
     const mod: any = {};
     new Function('module', code)(mod);
-    const fn = Object.values(mod.exports)[0] as Function;
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
     const html = fn({ val: 'hello' });
     expect(html).not.toContain('min=');
   });
@@ -4823,7 +5394,7 @@ describe('transpile — context=number in attribute', () => {
     const code = transpile(src, { filename: 'test.html' });
     const mod: any = {};
     new Function('module', code)(mod);
-    const fn = Object.values(mod.exports)[0] as Function;
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
     const html = fn({ val: null });
     expect(html).not.toContain('min=');
   });
@@ -4833,7 +5404,7 @@ describe('transpile — context=number in attribute', () => {
     const code = transpile(src, { filename: 'test.html' });
     const mod: any = {};
     new Function('module', code)(mod);
-    const fn = Object.values(mod.exports)[0] as Function;
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
     const html = fn({ val: 0 });
     expect(html).toContain('min="0"');
   });
@@ -4845,7 +5416,7 @@ describe('transpile — context=number in text node', () => {
     const code = transpile(src, { filename: 'test.html' });
     const mod: any = {};
     new Function('module', code)(mod);
-    const fn = Object.values(mod.exports)[0] as Function;
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
     const html = fn({ count: 42 });
     expect(html).toContain('<span>42</span>');
   });
@@ -4855,7 +5426,7 @@ describe('transpile — context=number in text node', () => {
     const code = transpile(src, { filename: 'test.html' });
     const mod: any = {};
     new Function('module', code)(mod);
-    const fn = Object.values(mod.exports)[0] as Function;
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
     const html = fn({ val: 'hello' });
     expect(html).toContain('<span></span>');
   });
@@ -4865,7 +5436,7 @@ describe('transpile — context=number in text node', () => {
     const code = transpile(src, { filename: 'test.html' });
     const mod: any = {};
     new Function('module', code)(mod);
-    const fn = Object.values(mod.exports)[0] as Function;
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
     const html = fn({ val: 0 });
     expect(html).toContain('<span>0</span>');
   });
@@ -4881,7 +5452,7 @@ describe('transpile — data-sly-text edge cases', () => {
     const code = transpile(src, { filename: 'test.html' });
     const mod: any = {};
     new Function('module', code)(mod);
-    const fn = Object.values(mod.exports)[0] as Function;
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
     const html = fn({ count: 0 });
     expect(html).toContain('<p>0</p>');
   });
@@ -4891,7 +5462,7 @@ describe('transpile — data-sly-text edge cases', () => {
     const code = transpile(src, { filename: 'test.html' });
     const mod: any = {};
     new Function('module', code)(mod);
-    const fn = Object.values(mod.exports)[0] as Function;
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
     const html = fn({ flag: false });
     expect(html).toContain('<p>false</p>');
   });
@@ -4922,7 +5493,7 @@ describe('transpile — _rest pass-through for sub-model injection', () => {
     const mod: any = {};
     new Function('module', code)(mod);
 
-    const html = mod.exports.createOuter({ title: 'Hello', extraClass: 'bold' });
+    const html = String(mod.exports.createOuter({ title: 'Hello', extraClass: 'bold' }));
     expect(html).toContain('class="bold"');
     expect(html).toContain('Hello');
   });
@@ -4935,7 +5506,7 @@ describe('transpile — _rest pass-through for sub-model injection', () => {
     const code = transpile(src, { filename: 'test.html' });
     const mod: any = {};
     new Function('module', code)(mod);
-    const fn = mod.exports.createCard as Function;
+    const fn = strFn(mod.exports.createCard);
 
     // submodel not passed → submodel.label renders as empty string
     const html = fn({ item: { name: 'Widget' } });
@@ -4958,10 +5529,10 @@ describe('transpile — _rest pass-through for sub-model injection', () => {
     new Function('module', code)(mod);
 
     // label is set explicitly to item.name; any "label" in _rest is overridden
-    const html = mod.exports.createOuter({
+    const html = String(mod.exports.createOuter({
       item: { name: 'explicit' },
       label: 'from-rest',  // must NOT win
-    });
+    }));
     expect(html).toContain('explicit');
     expect(html).not.toContain('from-rest');
   });
@@ -4982,7 +5553,7 @@ describe('transpile — _rest pass-through for sub-model injection', () => {
     new Function('module', code)(mod);
 
     // "extra" flows from the story all the way down to template c
-    const html = mod.exports.createA({ x: 'deep', extra: 'highlight' });
+    const html = String(mod.exports.createA({ x: 'deep', extra: 'highlight' }));
     expect(html).toContain('class="highlight"');
     expect(html).toContain('deep');
   });
@@ -5013,7 +5584,7 @@ describe('transpile — _rest pass-through for sub-model injection', () => {
 
     const mod: any = {};
     new Function('module', code)(mod);
-    const fn = Object.values(mod.exports)[0] as Function;
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
 
     // Without submodel: renders empty h2
     const withoutSubmodel = fn({ model: { desc: 'desc only' } });
@@ -5048,7 +5619,7 @@ describe('transpile — _rest pass-through for sub-model injection', () => {
 
     const mod: any = {};
     new Function('module', 'require', code)(mod, htmlAwareRequire);
-    const fn = Object.values(mod.exports)[0] as Function;
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
 
     // model.tabsTemplate selects the file; the rest of model flows into the template
     const html = fn({ model: { tabsTemplate: 'vertical' } });
@@ -5067,7 +5638,7 @@ describe('transpile — dynamic @ context expression in text node', () => {
     const code = transpile(src, { filename: 'test.html' });
     const mod: any = {};
     new Function('module', code)(mod);
-    const fn = Object.values(mod.exports)[0] as Function;
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
 
     const html = fn({ text: '<b>Bold</b>', model: { isRich: true } });
     expect(html).toContain('<b>Bold</b>');
@@ -5079,7 +5650,7 @@ describe('transpile — dynamic @ context expression in text node', () => {
     const code = transpile(src, { filename: 'test.html' });
     const mod: any = {};
     new Function('module', code)(mod);
-    const fn = Object.values(mod.exports)[0] as Function;
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
 
     const html = fn({ text: '<b>Bold</b>', model: { isRich: false } });
     expect(html).not.toContain('<b>Bold</b>');
@@ -5091,7 +5662,7 @@ describe('transpile — dynamic @ context expression in text node', () => {
     const code = transpile(src, { filename: 'test.html' });
     const mod: any = {};
     new Function('module', code)(mod);
-    const fn = Object.values(mod.exports)[0] as Function;
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
 
     expect(fn({ text: '<em>x</em>', flag: true })).toContain('<em>x</em>');
     expect(fn({ text: '<em>x</em>', flag: false })).toContain('&lt;em&gt;');
@@ -5110,7 +5681,7 @@ describe('transpile — dynamic @ context in data-sly-text', () => {
     const code = transpile(src, { filename: 'test.html' });
     const mod: any = {};
     new Function('module', code)(mod);
-    const fn = Object.values(mod.exports)[0] as Function;
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
 
     const html = fn({ text: '<strong>Rich</strong>', model: { isRich: true } });
     expect(html).toContain('<strong>Rich</strong>');
@@ -5122,7 +5693,7 @@ describe('transpile — dynamic @ context in data-sly-text', () => {
     const code = transpile(src, { filename: 'test.html' });
     const mod: any = {};
     new Function('module', code)(mod);
-    const fn = Object.values(mod.exports)[0] as Function;
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
 
     const html = fn({ text: '<strong>Rich</strong>', model: { isRich: false } });
     expect(html).toContain('&lt;strong&gt;');
@@ -5137,7 +5708,7 @@ describe('transpile — dynamic @ context expression in attributes', () => {
     const code = transpile(src, { filename: 'test.html' });
     const mod: any = {};
     new Function('module', code)(mod);
-    const fn = Object.values(mod.exports)[0] as Function;
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
 
     // flag=true → unsafe → raw value, no escaping
     expect(fn({ model: { json: '{"a":1}' }, flag: true })).toContain('data-json="{"a":1}"');
@@ -5150,7 +5721,7 @@ describe('transpile — dynamic @ context expression in attributes', () => {
     const code = transpile(src, { filename: 'test.html' });
     const mod: any = {};
     new Function('module', code)(mod);
-    const fn = Object.values(mod.exports)[0] as Function;
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
 
     expect(fn({ model: { val: null }, flag: true })).not.toContain('title=');
   });
@@ -5161,7 +5732,7 @@ describe('transpile — dynamic @ context expression in attributes', () => {
     const code = transpile(src, { filename: 'test.html' });
     const mod: any = {};
     new Function('module', code)(mod);
-    const fn = Object.values(mod.exports)[0] as Function;
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
 
     // flag=true → unsafe → no escaping of the cls value
     expect(fn({ cls: '<b>', flag: true })).toContain('class="base <b>"');

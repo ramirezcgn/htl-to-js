@@ -1,9 +1,23 @@
 import { parseDirectives } from './directives';
 import type { Directives, SetDecl } from './directives';
-import { convertExpr, convertAttrValue, convertTextContent, extractExprs, extractContext, extractDynamicContext } from './expr';
+import {
+  convertExpr,
+  convertAttrValue,
+  convertTextContent,
+  extractExprs,
+  extractContext,
+  extractDynamicContext,
+} from './expr';
 
 const URI_ATTRS = new Set([
-  'action', 'cite', 'data', 'formaction', 'href', 'manifest', 'poster', 'src',
+  'action',
+  'cite',
+  'data',
+  'formaction',
+  'href',
+  'manifest',
+  'poster',
+  'src',
 ]);
 
 const VOID_ELEMENTS = new Set([
@@ -41,7 +55,7 @@ export interface WalkerContext {
 export function createContext(
   omitAttrs: RegExp[] = [],
   sourceDir = '',
-  fileOverrides: Record<string, string> = {},
+  fileOverrides: Record<string, string> = {}
 ): WalkerContext {
   return {
     uses: {},
@@ -83,7 +97,9 @@ function addRootRefs(expr: string | null | undefined, refs: Set<string>): void {
 function formatCallParams(params: Record<string, string> | undefined): string {
   const entries = Object.entries(params ?? {});
   if (!entries.length) return 'undefined';
-  return '{ ' + entries.map(([key, value]) => key + ': ' + value).join(', ') + ' }';
+  return (
+    '{ ' + entries.map(([key, value]) => key + ': ' + value).join(', ') + ' }'
+  );
 }
 
 export function walkNodes(nodes: any[], ctx: WalkerContext): string {
@@ -148,11 +164,17 @@ function processElement(node: any, ctx: WalkerContext): string {
   if (dir.resource) {
     const resource = dir.resource;
     const definedOnSameElement = dir.sets.some((s) => s.name === resource.path);
-    if (/^\w+$/.test(resource.path) && !ctx.definedVars.has(resource.path) && !ctx.uses[resource.path] && !definedOnSameElement) {
+    if (
+      /^\w+$/.test(resource.path) &&
+      !ctx.definedVars.has(resource.path) &&
+      !ctx.uses[resource.path] &&
+      !definedOnSameElement
+    ) {
       resource.path = `'${resource.path}'`;
     }
     addRootRefs(resource.path, ctx.refs);
-    for (const value of Object.values(resource.params)) addRootRefs(value, ctx.refs);
+    for (const value of Object.values(resource.params))
+      addRootRefs(value, ctx.refs);
   }
   if (dir.element) addRootRefs(dir.element, ctx.refs);
   if (dir.unwrap != null) addRootRefs(dir.unwrap, ctx.refs);
@@ -161,7 +183,8 @@ function processElement(node: any, ctx: WalkerContext): string {
     Object.values(dir.call.params).forEach((v) => addRootRefs(v, ctx.refs));
   if (dir.include) {
     addRootRefs(dir.include.path, ctx.refs);
-    for (const value of Object.values(dir.include.params)) addRootRefs(value, ctx.refs);
+    for (const value of Object.values(dir.include.params))
+      addRootRefs(value, ctx.refs);
   }
   for (const s of dir.sets) addRootRefs(s.expr, ctx.refs);
   if (dir.dynamicAttrs)
@@ -177,7 +200,8 @@ function processElement(node: any, ctx: WalkerContext): string {
 
   for (const name of Object.keys(dir.use)) ctx.definedVars.add(name);
   for (const name of Object.keys(dir.fileUse)) ctx.definedVars.add(name);
-  for (const name of Object.keys(dir.dynamicFileUse || {})) ctx.definedVars.add(name);
+  for (const name of Object.keys(dir.dynamicFileUse || {}))
+    ctx.definedVars.add(name);
   for (const s of dir.sets) ctx.definedVars.add(s.name);
   if (dir.repeat) {
     ctx.definedVars.add(dir.repeat.varName);
@@ -237,7 +261,9 @@ function processElement(node: any, ctx: WalkerContext): string {
         if (dynamicFilePath && !ctx.uses[callObjName]) {
           const jsFnName =
             'create' + methodName.charAt(0).toUpperCase() + methodName.slice(1);
-          const extraParams = paramsStr ? `${paramsStr}, _includes` : '_includes';
+          const extraParams = paramsStr
+            ? `${paramsStr}, _includes`
+            : '_includes';
           const requirePath = dynamicFilePath.startsWith('`')
             ? dynamicFilePath
             : `(() => { const _usePath = String(${dynamicFilePath} ?? ''); return _usePath.startsWith('/') || _usePath.startsWith('.') ? _usePath : './' + _usePath; })()`;
@@ -275,9 +301,10 @@ function processElement(node: any, ctx: WalkerContext): string {
 
   if (dir.include) {
     const includeParams = formatCallParams(dir.include.params);
-    const includeExpr = includeParams === 'undefined'
-      ? `_incSlot(_includes, ${dir.include.path})`
-      : `_incSlot(_includes, ${dir.include.path}, ${includeParams})`;
+    const includeExpr =
+      includeParams === 'undefined'
+        ? `_incSlot(_includes, ${dir.include.path})`
+        : `_incSlot(_includes, ${dir.include.path}, ${includeParams})`;
     return applyTest(dir.test, `\${${includeExpr}}`);
   }
 
@@ -286,10 +313,11 @@ function processElement(node: any, ctx: WalkerContext): string {
     const children = dir.resource
       ? (() => {
           const resourceParams = formatCallParams(dir.resource.params);
-          const resourceSlot = resourceParams === 'undefined'
-            ? `_incSlot(_includes, ${dir.resource.path})`
-            : `_incSlot(_includes, ${dir.resource.path}, ${resourceParams})`;
-          return `\${_wrapResource(${dir.resource.path}, ${resourceSlot}, Object.assign({}, _staticResourceWrappers ?? {}, _resourceWrappers), ${rtArg})}`;
+          const slotParamsArg = resourceParams === 'undefined' ? 'undefined' : resourceParams;
+          const decTagArg = dir.resource.decorationTagName ?? 'undefined';
+          const cssClassArg = dir.resource.cssClassName ?? 'undefined';
+          const decorationArg = dir.resource.decoration ?? 'undefined';
+          return `\${_wrapResource(${dir.resource.path}, _includes, ${slotParamsArg}, Object.assign({}, _staticResourceWrappers ?? {}, _resourceWrappers), ${rtArg}, ${decTagArg}, ${cssClassArg}, ${decorationArg}, Object.assign({}, _staticResourceDecorations ?? {}, _resourceDecorations))}`;
         })()
       : walkNodes(node.children, localCtx);
     return applyTest(dir.test, children);
@@ -316,13 +344,15 @@ function processElement(node: any, ctx: WalkerContext): string {
   }
 
   if (dir.repeat) {
-    const { varName, listExpr, listMode, beginExpr, endExpr, stepExpr } = dir.repeat;
+    const { varName, listExpr, listMode, beginExpr, endExpr, stepExpr } =
+      dir.repeat;
     const listVar = `${varName}List`;
     const listDecl = `const ${listVar} = { index: _i, count: _i + 1, first: _i === 0, middle: _i > 0 && _i < _arr.length - 1, last: _i === _arr.length - 1, odd: (_i + 1) % 2 !== 0, even: (_i + 1) % 2 === 0 };`;
     const baseArr = `(Array.isArray(${listExpr}) ? (${listExpr}) : [])`;
-    const iterArr = (beginExpr ?? endExpr ?? stepExpr)
-      ? `_htlSlice(${baseArr}, ${beginExpr ?? 'undefined'}, ${endExpr ?? 'undefined'}, ${stepExpr ?? 'undefined'})`
-      : baseArr;
+    const iterArr =
+      (beginExpr ?? endExpr ?? stepExpr)
+        ? `_htlSlice(${baseArr}, ${beginExpr ?? 'undefined'}, ${endExpr ?? 'undefined'}, ${stepExpr ?? 'undefined'})`
+        : baseArr;
     const testVarName = dir.test;
     const hoisted: typeof localCtx.sets = [];
     const inner: typeof localCtx.sets = [];
@@ -388,15 +418,17 @@ function buildInnerContent(
     const rtArg = dir.resourceType ? "'" + dir.resourceType + "'" : 'undefined';
     const resource = dir.resource;
     const resourceParams = formatCallParams(resource.params);
-    const resourceSlot = resourceParams === 'undefined'
-      ? `_incSlot(_includes, ${resource.path})`
-      : `_incSlot(_includes, ${resource.path}, ${resourceParams})`;
-    return `\${_wrapResource(${resource.path}, ${resourceSlot}, Object.assign({}, _staticResourceWrappers ?? {}, _resourceWrappers), ${rtArg})}`;
+    const slotParamsArg = resourceParams === 'undefined' ? 'undefined' : resourceParams;
+    const decTagArg = resource.decorationTagName ?? 'undefined';
+    const cssClassArg = resource.cssClassName ?? 'undefined';
+    const decorationArg = resource.decoration ?? 'undefined';
+    return `\${_wrapResource(${resource.path}, _includes, ${slotParamsArg}, Object.assign({}, _staticResourceWrappers ?? {}, _resourceWrappers), ${rtArg}, ${decTagArg}, ${cssClassArg}, ${decorationArg}, Object.assign({}, _staticResourceDecorations ?? {}, _resourceDecorations))}`;
   }
   if (dir.text) {
     const isRaw = dir.textContext === 'html' || dir.textContext === 'unsafe';
     if (isRaw) return `\${${dir.text} ?? ''}`;
-    if (dir.textDynamicContext) return `\${_htlCtx(${dir.text}, ${dir.textDynamicContext})}`;
+    if (dir.textDynamicContext)
+      return `\${_htlCtx(${dir.text}, ${dir.textDynamicContext})}`;
     return `\${_htlText(${dir.text})}`;
   }
   return walkNodes(node.children, ctx);
@@ -412,7 +444,11 @@ function buildAttrs(
     .filter(([key]) => !omitAttrs.some((pattern) => pattern.test(key)))
     .map(([key, val]) => {
       const exprs = extractExprs(val);
-      if (exprs.length === 1 && exprs[0].index === 0 && exprs[0].end === val.length) {
+      if (
+        exprs.length === 1 &&
+        exprs[0].index === 0 &&
+        exprs[0].end === val.length
+      ) {
         const ctx = extractContext(exprs[0].expr);
         const converted = convertExpr(exprs[0].expr);
         if (ctx === 'unsafe') {
@@ -424,7 +460,8 @@ function buildAttrs(
         if (ctx === 'number') {
           return `\${_htlDynAttr('${key}', _htlNum(${converted}))}`;
         }
-        const dynCtx = ctx == null ? extractDynamicContext(exprs[0].expr) : null;
+        const dynCtx =
+          ctx == null ? extractDynamicContext(exprs[0].expr) : null;
         if (dynCtx != null) {
           return `\${_htlDynAttrCtx('${key}', ${converted}, ${dynCtx})}`;
         }

@@ -1,6 +1,13 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { convertExpr, convertAttrValue, escapeLiteral, extractExprs, extractContext, extractDynamicContext } from './expr';
+import {
+  convertExpr,
+  convertAttrValue,
+  escapeLiteral,
+  extractExprs,
+  extractContext,
+  extractDynamicContext,
+} from './expr';
 
 export interface SetDecl {
   name: string;
@@ -20,14 +27,27 @@ export interface Directives {
   dynamicFileUse: Record<string, string>;
   jsFileUse: Record<string, string>;
   test: string | null;
-  repeat: { varName: string; listExpr: string; listMode: boolean; beginExpr: string | null; endExpr: string | null; stepExpr: string | null } | null;
+  repeat: {
+    varName: string;
+    listExpr: string;
+    listMode: boolean;
+    beginExpr: string | null;
+    endExpr: string | null;
+    stepExpr: string | null;
+  } | null;
   element: string | null;
   unwrap: string | null;
   sets: SetDecl[];
   text: string | null;
   textContext: string | null;
   textDynamicContext: string | null;
-  resource: { path: string; params: Record<string, string> } | null;
+  resource: {
+    path: string;
+    params: Record<string, string>;
+    decorationTagName: string | null;
+    cssClassName: string | null;
+    decoration: string | null;
+  } | null;
   resourceType: string | null;
   template: { name: string; params: string[] } | null;
   call: CallDescriptor | null;
@@ -45,7 +65,7 @@ export interface Directives {
 function resolveCandidatePath(
   val: string,
   sourceDir: string,
-  maxLevels: number,
+  maxLevels: number
 ): string | null {
   let dir = sourceDir;
   for (let i = 0; i < maxLevels; i++) {
@@ -119,14 +139,18 @@ function parseUseDefault(val: string): string | null {
 
 function parseHtlOptions(value: string): Record<string, string> {
   const options: Record<string, string> = {};
-  const valueRe = /(\w+)\s*=\s*((?:'(?:\\.|[^'\\])*'|"(?:\\.|[^"\\])*"|\$\{(?:[^{}]|\{[^{}]*\})*\}|\[[^\]]*\]|[^,}])+)/g;
+  const valueRe =
+    /(\w+)\s*=\s*((?:'(?:\\.|[^'\\])*'|"(?:\\.|[^"\\])*"|\$\{(?:[^{}]|\{[^{}]*\})*\}|\[[^\]]*\]|[^,}])+)/g;
   for (const match of value.matchAll(valueRe)) {
     options[match[1].trim()] = convertExpr(match[2].trim());
   }
   return options;
 }
 
-function parseHtlPathAndOptions(raw: string): { path: string; params: Record<string, string> } {
+function parseHtlPathAndOptions(raw: string): {
+  path: string;
+  params: Record<string, string>;
+} {
   const trimmed = raw.trim();
   const isWrappedExpr = trimmed.startsWith('${') && trimmed.endsWith('}');
   const inner = isWrappedExpr ? trimmed.slice(2, -1).trim() : trimmed;
@@ -135,10 +159,14 @@ function parseHtlPathAndOptions(raw: string): { path: string; params: Record<str
   const params = atIdx === -1 ? {} : parseHtlOptions(inner.slice(atIdx + 1));
   const overridePath = params.path;
   if (overridePath) delete params.path;
-  const literalPath = pathPart.replace(/^['"](.+)['"]$/, '$1').replaceAll("'", String.raw`\'`);
-  const pathExpr = overridePath ?? (isWrappedExpr || pathPart.startsWith('${')
-    ? convertExpr('${' + pathPart + '}')
-    : "'" + literalPath + "'");
+  const literalPath = pathPart
+    .replace(/^['"](.+)['"]$/, '$1')
+    .replaceAll("'", String.raw`\'`);
+  const pathExpr =
+    overridePath ??
+    (isWrappedExpr || pathPart.startsWith('${')
+      ? convertExpr('${' + pathPart + '}')
+      : "'" + literalPath + "'");
 
   const appendPath = params.appendPath as string | undefined;
   const prependPath = params.prependPath as string | undefined;
@@ -156,13 +184,17 @@ function parseHtlPathAndOptions(raw: string): { path: string; params: Record<str
 function composeHtlPath(
   pathExpr: string,
   prependExpr: string | undefined,
-  appendExpr: string | undefined,
+  appendExpr: string | undefined
 ): string {
   if (!prependExpr && !appendExpr) return pathExpr;
 
   const staticBase = /^'([^']*)'$/.exec(pathExpr)?.[1];
-  const staticPrepend = prependExpr ? /^'([^']*)'$/.exec(prependExpr)?.[1] : undefined;
-  const staticAppend = appendExpr ? /^'([^']*)'$/.exec(appendExpr)?.[1] : undefined;
+  const staticPrepend = prependExpr
+    ? /^'([^']*)'$/.exec(prependExpr)?.[1]
+    : undefined;
+  const staticAppend = appendExpr
+    ? /^'([^']*)'$/.exec(appendExpr)?.[1]
+    : undefined;
 
   if (staticBase !== undefined) {
     let composed = staticBase;
@@ -175,7 +207,7 @@ function composeHtlPath(
     }
     if (appendExpr !== undefined) {
       if (staticAppend === undefined) {
-        return `_htlJoinPaths('${composed}', undefined, ${appendExpr})`; 
+        return `_htlJoinPaths('${composed}', undefined, ${appendExpr})`;
       }
       composed =
         composed.replace(/\/$/, '') + '/' + staticAppend.replace(/^\//, '');
@@ -211,12 +243,16 @@ function buildDynamicJsUseDefault(pathExpr: string): string {
  * Extracts begin / end / step iteration-control options from a data-sly-list or
  * data-sly-repeat attribute value. Returns null for each option not present.
  */
-function parseRepeatIterationOptions(
-  raw: string,
-): { beginExpr: string | null; endExpr: string | null; stepExpr: string | null } {
+function parseRepeatIterationOptions(raw: string): {
+  beginExpr: string | null;
+  endExpr: string | null;
+  stepExpr: string | null;
+} {
   const trimmed = raw.trim();
-  const inner = trimmed.startsWith('${') && trimmed.endsWith('}')
-    ? trimmed.slice(2, -1).trim() : trimmed;
+  const inner =
+    trimmed.startsWith('${') && trimmed.endsWith('}')
+      ? trimmed.slice(2, -1).trim()
+      : trimmed;
   const atIdx = inner.indexOf('@');
   if (atIdx === -1) return { beginExpr: null, endExpr: null, stepExpr: null };
   const opts = parseHtlOptions(inner.slice(atIdx + 1));
@@ -264,15 +300,26 @@ export function parseDirectives(
       const trimmed = val.trim();
       const literalExpr = unwrapPureStringExpression(trimmed);
       const staticCandidate = literalExpr ?? trimmed;
-      const requirePath = sourceDir ? resolveHtlPath(staticCandidate, sourceDir) : null;
-      const jsRequirePath = requirePath ? null : (sourceDir ? resolveJsUsePath(staticCandidate, sourceDir) : null);
+      const requirePath = sourceDir
+        ? resolveHtlPath(staticCandidate, sourceDir)
+        : null;
+      const jsRequirePath = requirePath
+        ? null
+        : sourceDir
+          ? resolveJsUsePath(staticCandidate, sourceDir)
+          : null;
       if (requirePath) {
         directives.fileUse[name] = requirePath;
       } else if (jsRequirePath) {
         directives.jsFileUse[name] = jsRequirePath;
-      } else if (trimmed.includes('${') && (trimmed.endsWith('.js') || trimmed.endsWith('.json'))) {
+      } else if (
+        trimmed.includes('${') &&
+        (trimmed.endsWith('.js') || trimmed.endsWith('.json'))
+      ) {
         directives.use[name] = val;
-        directives.useDefaults[name] = buildDynamicJsUseDefault(convertInterpolatedString(trimmed));
+        directives.useDefaults[name] = buildDynamicJsUseDefault(
+          convertInterpolatedString(trimmed)
+        );
       } else if (trimmed.includes('${') && trimmed.endsWith('.html')) {
         const converted = convertInterpolatedString(trimmed);
         if (trimmed.startsWith('/')) {
@@ -370,23 +417,39 @@ export function parseDirectives(
     if (key === 'data-sly-text') {
       directives.text = convertExpr(val);
       directives.textContext = extractContext(val);
-      directives.textDynamicContext = directives.textContext == null
-        ? extractDynamicContext(val)
-        : null;
+      directives.textDynamicContext =
+        directives.textContext == null ? extractDynamicContext(val) : null;
       directives.skip.add(key);
       continue;
     }
 
     if (key === 'data-sly-resource') {
       const parsed = parseHtlPathAndOptions(val);
-      const rtMatch = /@\s*resourceType\s*=\s*['"]([^'"]+)['"]/.exec(val);
+      const rtMatch = /\bresourceType\s*=\s*['"]([^'"]+)['"]/.exec(val);
       if (rtMatch) directives.resourceType = rtMatch[1];
-      const params = { ...parsed.params } as Record<string, string> & { resourceType?: string; path?: string };
-      const { resourceType } = params;
+      const params = { ...parsed.params } as Record<string, string> & {
+        resourceType?: string;
+        path?: string;
+        decorationTagName?: string;
+        cssClassName?: string;
+        decoration?: string;
+      };
+      const { resourceType, decorationTagName, cssClassName, decoration } =
+        params;
       delete params.resourceType;
       delete params.path;
-      if (resourceType && !directives.resourceType) directives.resourceType = resourceType;
-      directives.resource = { path: parsed.path, params };
+      delete params.decorationTagName;
+      delete params.cssClassName;
+      delete params.decoration;
+      if (resourceType && !directives.resourceType)
+        directives.resourceType = resourceType;
+      directives.resource = {
+        path: parsed.path,
+        params,
+        decorationTagName: decorationTagName ?? null,
+        cssClassName: cssClassName ?? null,
+        decoration: decoration ?? null,
+      };
       directives.skip.add(key);
       continue;
     }

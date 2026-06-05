@@ -5,6 +5,21 @@
 
 Webpack loader and CLI that transpiles AEM HTL (Sightly) templates into JavaScript functions returning template literals.
 
+Each generated `createXxx` function returns an object that behaves as a string (via `toString()` / template literal coercion) and also carries component metadata:
+
+```js
+{
+  toString: () => html,       // the rendered HTML string
+  _class: 'image',            // CSS class derived from the component path
+  _resourceType: 'mysite/components/image', // full resource type from jcr_root
+  _slots: ['header', 'footer'], // static slot keys (same as __slots__)
+  _decorationTagName: undefined,
+  _attrs: {},
+}
+```
+
+This metadata is used internally by `_wrapResource` to auto-derive decoration classes when components are nested — it propagates through wrapper chains transparently.
+
 ```js
 import { createAccordion } from '../../jcr_root/apps/mysite/components/accordion/accordion.html';
 ```
@@ -150,6 +165,7 @@ The following AEM implicit objects are automatically detected and added as optio
 | `_i18n` | `{}` |
 | `_wrapperClass` | `''` |
 | `_resourceWrappers` | `{}` |
+| `_resourceDecorations` | `{}` |
 | `request` | `{ requestPathInfo: { selectorString: '', suffix: '', resourcePath: '' }, contextPath: '' }` |
 
 Variables declared via `data-sly-use.X` are always included as parameters. Any other free variables referenced in directive expressions are also detected and added as parameters with `{}` defaults.
@@ -203,7 +219,8 @@ const _htlDynAttr = (name, val) => { ... };
 const _htlSpreadAttrs = (obj) => { ... };
 
 const createAccordion = ({ accordion = {}, properties = {} } = {}) => {
-  return /* html */`<div class="cmp-accordion ${_htlAttr(properties?.theme)}" id="${_htlAttr(accordion?.id)}">${(accordion?.items?.length > 0) ? `${((accordion?.items) || []).map((item, _i, _arr) => { if (item == null) return ''; const itemList = { index: _i, count: _i + 1, first: _i === 0, last: _i === _arr.length - 1, odd: (_i + 1) % 2 !== 0, even: (_i + 1) % 2 === 0 }; return `<div><span>${(item?.title) ?? ''}</span></div>`; }).join('')}` : ''}</div>`;
+  const _html = /* html */`<div class="cmp-accordion ${_htlAttr(properties?.theme)}" id="${_htlAttr(accordion?.id)}">...</div>`;
+  return { toString: () => _html, _class: 'accordion', _resourceType: null, _slots: undefined, _decorationTagName: undefined, _attrs: {} };
 };
 module.exports = { createAccordion };
 ```
@@ -225,9 +242,10 @@ Generates:
 
 ```js
 const createDefault = ({ model = {} } = {}) => {
-  return /* html */`<a class="template" href="${_htlAttr(model?.url)}">
+  const _html = /* html */`<a class="template" href="${_htlAttr(model?.url)}">
     <h3>${(model?.title) ?? ''}</h3>
   </a>`;
+  return { toString: () => _html, _class: 'default', _resourceType: null, _slots: undefined, _decorationTagName: undefined, _attrs: {} };
 };
 module.exports = { createDefault };
 ```
@@ -252,31 +270,76 @@ module.exports = { createDefault };
 
 ```js
 // Generated
-${_incSlot(_includes, 'header')}
-${_incSlot(_includes, model?.path)}
+${_wrapResource('header', _includes, undefined, Object.assign({}, _staticResourceWrappers ?? {}, _resourceWrappers), undefined, undefined, undefined, undefined, Object.assign({}, _staticResourceDecorations ?? {}, _resourceDecorations))}
+${_wrapResource(model?.path, _includes, undefined, ...)}
 // appendPath/prependPath resolved at compile time when static
-${_incSlot(_includes, 'my/path/child')}
-${_incSlot(_includes, 'root/my/path')}
+${_wrapResource('my/path/child', _includes, undefined, ...)}
+${_wrapResource('root/my/path', _includes, undefined, ...)}
 ```
 
-Pass content via `_includes` in your story args. Strings, functions, and arrays are all accepted:
+Pass content via `_includes` in your story args. Each slot value can be a string, function, array, or enriched component result — they all resolve to HTML:
+
+| slot value | result |
+|---|---|
+| `'string'` | rendered as-is |
+| `createXxx()` | rendered via `toString()` |
+| `() => 'string'` | function called, result rendered |
+| `() => createXxx()` | function called, enriched object rendered via `toString()` |
+| `['a', 'b']` | items joined: `'ab'` |
+| `[createText(), createImage()]` | each item rendered via `toString()`, joined |
+| `() => ['a', 'b']` | function called, array joined |
 
 ```js
 export const Default = {
   args: {
     _includes: {
       header: '<nav>Navigation</nav>',            // plain string
-      sidebar: () => '<aside>Sidebar</aside>',    // function
+      sidebar: () => createSidebar({ title: 'Menu' }),    // function
       tags: ['<li>One</li>', '<li>Two</li>'],     // array — joined automatically
-      items: () => ['<li>A</li>', '<li>B</li>'],  // function returning array
+      items: () => [createCard({ id: 1 }), createCard({ id: 2 })],  // function returning array
     }
   }
 }
 ```
 
+#### Function parameters in `_includes` slots
+
+When an `_includes` slot value is a function, it is called with the `data-sly-resource @options` from the HTL template — typically `{}` unless the HTL explicitly passes options:
+
+```html
+<!-- HTL: no options → slot function called with {} -->
+<sly data-sly-resource="${'sidebar'}"></sly>
+
+<!-- HTL: options → slot function called with { wcmmode: 'edit' } -->
+<sly data-sly-resource="${'sidebar' @ wcmmode='edit'}"></sly>
+```
+
+```js
+// The slot function receives only the @options — NOT the parent component's model
+args: {
+  _includes: {
+    sidebar: (slotParams) => createSidebar({ title: 'Static title' }),
+    //        ^^^^^^^^^^  usually {} — does not include parent model
+  }
+}
+```
+
+If you need parent component data inside a slot function, use a closure in the story or use the [`content` shorthand](#content-shorthand) instead, which receives all parent props.
+
+```js
+// Closure workaround for _includes when you need parent data
+const parentModel = { title: 'My Title' };
+createContainer({
+  model: parentModel,
+  _includes: {
+    header: () => createHeader({ title: parentModel.title }),  // close over parent data
+  },
+});
+```
+
 #### Indexed slots (`par_N`)
 
-When a template repeats a slot name with an index suffix (e.g. `par_0`, `par_1`), you can supply a single array under the base key and each index is resolved automatically:
+When a template has indexed slots (`par_0`, `par_1`, …), supply a single array under the base key. Each index resolves to the corresponding array element — 2D arrays are supported so inner items concatenate within each slot:
 
 ```js
 args: {
@@ -287,9 +350,12 @@ args: {
     // You can write:
     par: ['<div>First</div>', '<div>Second</div>'],
     // or with a factory:
-    par: () => ['<div>First</div>', '<div>Second</div>'],
-    // 2D arrays are flattened:
-    par: () => [['<span>a</span>', '<span>b</span>'], ['<span>c</span>']],
+    par: () => [createText(), createImage()],
+    // 2D: inner array items concatenate within each slot
+    par: () => [
+      [createText(), createImage()],  // → par_0
+      [createCard()],                  // → par_1
+    ],
   }
 }
 ```
@@ -310,7 +376,60 @@ createHeader.__slots__; // ['hero', 'footer']
 
 Dynamic keys (expressions like `${model.path}`) are not included — only compile-time string literals appear in `__slots__`.
 
-### TypeScript declarations (`.d.ts`)
+### Decoration tags
+
+In AEM, components rendered via `data-sly-resource` are usually wrapped in a decoration `<div>` with a CSS class derived from the component's resource type. HTL-to-js reproduces this with the `decorationTagName` and `cssClassName` options on `data-sly-resource`, plus automatic class derivation.
+
+```html
+<!-- HTL: explicit decoration tag and CSS class -->
+<sly data-sly-resource="${'item' @ decorationTagName='div', cssClassName='my-class'}"></sly>
+
+<!-- HTL: decoration tag with automatic class from resourceType -->
+<sly data-sly-resource="${'item' @ decorationTagName='div', resourceType='mysite/components/image'}"></sly>
+```
+
+When `decorationTagName` is set and the slot function's return value carries a `_class` property (which all transpiled `createXxx` functions provide), the decoration class is derived automatically in this order:
+
+1. **`resourceType` last segment** — e.g. `resourceType='mysite/components/image'` → class `image`
+2. **`_class` on the return value** — when the slot is a wrapper chain like `() => createContainer({...})`, the `_class: 'container'` from `createContainer`'s return value propagates up automatically
+3. **`fn.name`** — if the slot function is named `createImage`, the class `image` is derived from the function name
+4. **`cssClassName`** — appended after the auto-derived class
+
+```js
+// Story: slot function returns enriched object → class derived automatically
+export const Default = {
+  args: {
+    _includes: {
+      item: () => createImage({ src: '/img.jpg' }), // _class: 'image' propagates
+    }
+  }
+};
+// Renders: <div class="image"><img src="/img.jpg"></div>
+```
+
+#### `_resourceDecorations`
+
+Override or configure decoration per slot key or `resourceType` at runtime:
+
+```js
+args: {
+  _resourceDecorations: {
+    item: {
+      decorationTagName: 'div',
+      cssClassName: 'extra-class',
+      decoration: true,
+    },
+    // or keyed by resourceType:
+    'mysite/components/container': {
+      decorationTagName: 'section',
+    },
+  }
+}
+```
+
+Set `decoration: false` to suppress the decoration tag even when `decorationTagName` is set in HTL.
+
+
 
 Use `generateDts` (or the `--dts` CLI flag) to emit a declaration file alongside the generated JS. When `__slots__` is present, `_includes` is typed with the known slot keys:
 
@@ -323,7 +442,7 @@ export declare function createHeader(args?: {
     'footer'?: string | (() => string);
     [key: string]: string | (() => string) | undefined;
   };
-}): string;
+}): { toString(): string; _class: string; _resourceType: string | null; _slots: string[] | undefined; _decorationTagName: undefined; _attrs: {} };
 export declare const __slots__: ['hero', 'footer'];
 ```
 
@@ -815,56 +934,124 @@ const modelTransforms = {
 
 The supported destructured bindings are:
 
-- `model` — replaced with the actual model variable (for example `container`)
-- `_includes` — replaced with the generated `_includes` parameter
-- `varName` — replaced with the model variable name as a string literal
+- `model` — the model variable from `data-sly-use` (e.g. `container`, `tabs`, …)
+- the variable name itself — same as `model` (e.g. `({ tabs })` when the use-binding is `tabs`)
+- `_includes` — the component's `_includes` parameter
+- `varName` — the variable name as a string literal (e.g. `'tabs'`)
+- any other identifier — forwarded to `_rest.<identifier>`, i.e. any other prop passed to the component
 
-If your build tooling rewrites loader config functions before `htl-to-js` sees them, use the string-based form instead. The string form remains the most portable option.
+The `_rest` fallback is rarely needed; the common pattern is to just destructure the model variable by name (as in the `Tabs` example above).
+
 
 **Special key `_includes`** — computes `_includes` slot entries from model data. Unlike regular keys (which are merged into the model object), `_includes` is assigned to the `_includes` parameter directly. Runtime `_includes` take precedence over computed ones.
 
+Because the callback is serialized and runs inside the generated function body, it has access to the model variable and all other component parameters:
+
 ```js
 const modelTransforms = {
+  // String expression — 'model' is replaced with the actual use-binding variable
   'ColumnModel': {
     _includes: "Object.fromEntries((model.columns || []).map((col, i) => [col.path, () => (model._content || [])[i] || '']))",
   },
-};
-```
 
-**Special key `content`** — a shorthand for the `_rest.content` escape hatch. When a component receives a `content` prop (e.g. from a parent passing `content: () => ...`), the generated function automatically routes it into `_includes` using one of two strategies:
+  // Direct callback — bindings are resolved at serialization time
+  'Tabs': {
+    _includes: ({ tabs }) =>          // 'tabs' matches the varName → the model variable
+      Object.fromEntries(
+        (tabs?.children || tabs?.items || []).map((item) => [
+          item.resource ?? item.id ?? item.name,
+          () => (typeof item.content === 'function' ? item.content() : (item.content || ''))
+        ])
+      ),
+  },
 
-- If `content` is a **function that returns a plain object**, its result is spread directly into `_includes` (useful when the function returns a full slot map).
-- Otherwise, `content` is assigned to the first slot defined in the template body (the first `data-sly-resource` or `data-sly-include` key, with `parsys`/`par`/`content`/`main` preferred).
-
-In either case, explicit keys already in `_includes` always take precedence.
-
-```js
-const modelTransforms = {
+  // Access other component params via _rest
   'ImageModel': {
-    // content receives the raw image HTML and forwards it to the 'image' slot
-    content: ({ model }) => (model) => ({ image: model.imageHtml }),
+    _includes: ({ model, someOtherParam }) =>  // someOtherParam → _rest.someOtherParam
+      ({ image: model.imageHtml }),
   },
 };
 ```
 
-You can also rely on the automatic routing without any `modelTransforms` entry — simply pass `content` in the story args:
+### `content` shorthand
+
+`content` is a shorthand for `_includes` — instead of building the slot map manually, pass a value directly and the runtime routes it into the right slot. All the same value types that `_includes` supports are accepted:
 
 ```js
+// function → called and routed to the first slot
+createContainer({ content: () => createText() })
+
+// array → same as _includes: { par: [...] }, distributes across par_0, par_1, …
+createContainer({
+  content: [createText(), createImage()],
+})
+
+// 2D array → inner arrays concatenate within each slot
+createContainer({
+  content: [
+    [createText(), createImage()],  // → par_0
+    [createCard()],                  // → par_1
+  ],
+})
+
+// object → spread directly into _includes (explicit key routing)
+createContainer({
+  content: ({ model }) => ({
+    header: () => createHeader({ title: model.title }),
+    footer: () => createFooter(),
+  }),
+})
+```
+
+Explicit `_includes` keys always take priority over `content`.
+
+#### Function parameters in `content`
+
+Unlike `_includes` slot functions (which only receive `@options`), a `content` function receives **all the parent component's props** — `model`, `_includes`, and any other parameters the component accepts:
+
+```js
+// content function receives { model, ...allOtherProps }
+createContainer({
+  model: { title: 'Hero' },
+  content: ({ model }) => createHero({ title: model.title }),
+  //         ^^^^^^^  the full parent props are available here
+})
+
+// Useful for computing slot content from the model
+createContainer({
+  model: { items: ['a', 'b', 'c'] },
+  content: ({ model }) => model.items.map(item => createCard({ label: item })),
+})
+```
+
+This is why `content` as a story arg is useful for data-driven slot composition at runtime — when you need to pass data down from the story, `content` receives all the parent component's props automatically.
+
+**When to use `content` vs `_includes` in `modelTransforms`:**
+
+- Use **`content` story arg** when the slot data comes from the story itself (runtime)
+- Use **`_includes` in `modelTransforms`** when the slot data is derived from the model (build-time, applies to every story using that component)
+
+```js
+// modelTransforms: compute _includes from model data at runtime inside the generated function
+const modelTransforms = {
+  'Tabs': {
+    _includes: ({ tabs }) =>
+      Object.fromEntries(
+        (tabs?.children || tabs?.items || []).map((item) => [
+          item.resource ?? item.id ?? item.name,
+          () => (typeof item.content === 'function' ? item.content() : (item.content || ''))
+        ])
+      ),
+  },
+};
+
+// story: pass content directly from story args
 export const Default = {
   args: {
-    // A function returning a slot map — spread into _includes
-    content: (model) => ({ image: `<img src="${model.src}">`, alt: model.alt }),
-
-    // A function returning a string — assigned to the first slot
-    content: () => '<img src="/hero.jpg">',
-
-    // A plain string — assigned to the first slot
-    content: '<img src="/hero.jpg">',
+    content: () => createText({ text: 'Hello' }),
   }
 };
 ```
-
-This is the only special key — it belongs in `modelTransforms` because the value is computed from the model data, unlike `resourceWrappers` or `wrapperClass` which are static configuration.
 
 ### `fileOverrides`
 

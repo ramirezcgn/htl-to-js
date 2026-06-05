@@ -32,12 +32,21 @@ const AEM_IMPLICITS: Record<string, string> = {
   _i18n: '{}',
   _wrapperClass: "''",
   _resourceWrappers: '{}',
+  _resourceDecorations: '{}',
   request:
     "{ requestPathInfo: { selectorString: '', suffix: '', resourcePath: ''  }, contextPath: ''  }",
 };
 
 // Canonical AEM paragraph-system slot names checked in priority order.
-const PARSYS_SLOTS = new Set(['par', 'parsys', 'content', 'main', 'centerpar', 'leftpar', 'rightpar']);
+const PARSYS_SLOTS = new Set([
+  'par',
+  'parsys',
+  'content',
+  'main',
+  'centerpar',
+  'leftpar',
+  'rightpar',
+]);
 
 interface TranspileOptions {
   filename?: string;
@@ -49,6 +58,10 @@ interface TranspileOptions {
   resourceWrappers?: Record<
     string,
     string | { wrapper?: string; childClass?: string }
+  >;
+  resourceDecorations?: Record<
+    string,
+    { decorationTagName?: string; cssClassName?: string; decoration?: boolean }
   >;
   fileOverrides?: Record<
     string,
@@ -71,7 +84,10 @@ interface TemplateInfo {
 type LegacyModelTransformFn = (varName: string) => string;
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type DirectModelTransformFn = (bindings: any) => any;
-type ModelTransformValue = string | LegacyModelTransformFn | DirectModelTransformFn;
+type ModelTransformValue =
+  | string
+  | LegacyModelTransformFn
+  | DirectModelTransformFn;
 
 /**
  * Transpiles an HTL source string into a JavaScript module that exports
@@ -91,6 +107,7 @@ export function transpile(
     modelTransforms = {},
     wrapperClass,
     resourceWrappers,
+    resourceDecorations,
     fileOverrides = {},
     format = 'cjs',
   }: TranspileOptions = {}
@@ -114,19 +131,23 @@ export function transpile(
       serializedFileOverrides[key] = val;
     } else if (val.htl) {
       serializedFileOverrides[key] = transpileInlineHtl(
-        val.htl, omitAttrs, sourceDir, modelTransforms,
-        serializedFileOverrides,
+        val.htl,
+        omitAttrs,
+        sourceDir,
+        modelTransforms,
+        serializedFileOverrides
       );
     } else if (val.expression) {
       serializedFileOverrides[key] = val.expression;
     }
   }
 
-  const effectiveI18nDict =
-    i18nFallbackDicts?.length
-      ? Object.assign({}, ...i18nFallbackDicts, i18nDict ?? {})
-      : i18nDict;
-  const i18nDefault = effectiveI18nDict ? JSON.stringify(effectiveI18nDict) : undefined;
+  const effectiveI18nDict = i18nFallbackDicts?.length
+    ? Object.assign({}, ...i18nFallbackDicts, i18nDict ?? {})
+    : i18nDict;
+  const i18nDefault = effectiveI18nDict
+    ? JSON.stringify(effectiveI18nDict)
+    : undefined;
 
   let body: string;
   if (templates.length > 0) {
@@ -137,7 +158,7 @@ export function transpile(
       modelTransforms,
       serializedFileOverrides,
       i18nDefault,
-      format,
+      format
     );
   } else {
     body = transpileSingleTemplate(
@@ -149,14 +170,14 @@ export function transpile(
       wrapperClass,
       serializedFileOverrides,
       i18nDefault,
-      format,
+      format
     );
   }
 
   const banner = `// AUTO-GENERATED from ${path.basename(filename)} — DO NOT EDIT\n\n`;
   const helpers = [
-    `const _htlAttr = (v) => v == null ? '' : (Array.isArray(v) ? v.map(x => x == null ? '' : String(x).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')).join(',') : typeof v === 'object' ? JSON.stringify(v).replace(/"/g, '&quot;') : String(v).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'));`,
-    `const _htlText = (v) => v == null ? '' : String(v).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');`,
+    `const _htlAttr = (v) => v == null ? '' : (Array.isArray(v) ? v.map(x => x == null ? '' : (typeof x === 'object' ? JSON.stringify(x) : String(x)).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')).join(',') : typeof v === 'object' ? JSON.stringify(v).replace(/"/g, '&quot;') : String(v).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'));`,
+    `const _htlText = (v) => { if (v == null) return ''; const s = Array.isArray(v) ? v.map(x => x == null ? '' : typeof x === 'object' ? JSON.stringify(x) : String(x)).join(',') : typeof v === 'object' ? JSON.stringify(v) : String(v); return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); };`,
     `const _htlCtx = (v, ctx) => { if (ctx === 'html' || ctx === 'unsafe') return String(v ?? ''); if (ctx === 'number') { const n = Number(v); return (!v && v !== 0) || isNaN(n) ? '' : String(n); } if (ctx === 'uri') { try { return encodeURI(String(v ?? '')).replace(/"/g, '&quot;'); } catch { return ''; } } return _htlText(v); };`,
     `const _htlCtxAttr = (v, ctx) => { if (ctx === 'html' || ctx === 'unsafe') return String(v ?? ''); if (ctx === 'uri') return _htlUri(v); if (ctx === 'number') return _htlNum(v) ?? ''; return _htlAttr(v); };`,
     `const _htlDynAttrCtx = (name, v, ctx) => { if (ctx === 'html' || ctx === 'unsafe') { if (v == null || v === false) return ''; if (v === true) return ' ' + name; return ' ' + name + '="' + String(v) + '"'; } return _htlDynAttr(name, ctx === 'uri' ? _htlUri(v) : ctx === 'number' ? _htlNum(v) : v); };`,
@@ -169,13 +190,19 @@ export function transpile(
     `const _htlDynAttr = (name, val) => { if (val == null || val === false) return ''; if (val === true) return ' ' + name; return ' ' + name + '="' + _htlAttr(val) + '"'; };`,
     `const _htlSpreadAttrs = (obj) => { if (!obj || typeof obj !== 'object') return ''; return Object.entries(obj).map(([k, v]) => _htlDynAttr(k, v)).join(''); };`,
     `const _inc = (v) => typeof v === 'function' ? v() : String(v ?? '');`,
-    `const _arrJoin = (v) => Array.isArray(v) ? v.map(_arrJoin).join('') : (v == null ? '' : String(v));`,
-    String.raw`const _incSlot = (inc, key, params) => { if (!inc) return ''; const v = inc[key]; if (v != null) return _arrJoin(typeof v === 'function' ? v(params) : v); if (typeof key === 'string') { const m = key.match(/^(.+)_(\d+)$/); if (m) { const b = inc[m[1]]; if (b != null) { const a = typeof b === 'function' ? b(params) : b; if (Array.isArray(a)) return _arrJoin(a[+m[2]]); } } } return ''; };`,
-    `const _wrapResource = (key, html, wrappers, resourceType) => {`,
-    `  const cfg = wrappers?.[key] ?? (resourceType ? wrappers?.[resourceType] : undefined); if (!cfg) return html;`,
-    `  if (typeof cfg === 'string') return '<div class="' + cfg + '">' + html + '</div>';`,
-    `  let r = html;`,
-    `  if (cfg.childClass) {`,
+    `const _arrJoin = (v) => Array.isArray(v) ? v.map(_arrJoin).join('') : (v == null ? '' : (typeof v === 'object' ? (v.toString !== Object.prototype.toString ? String(v) : JSON.stringify(v)) : String(v)));`,
+    String.raw`const _incSlot = (inc, key, params) => { if (!inc) return ''; const v = inc[key]; if (v != null) return _arrJoin(typeof v === 'function' ? v(params) : v); if (typeof key === 'string') { const m = key.match(/^(.+)_(\d+)$/); if (m) { const b = inc[m[1]]; if (b != null) { const a = typeof b === 'function' ? b(params) : b; if (Array.isArray(a)) return _arrJoin(a[+m[2]]); if (+m[2] === 0) return _arrJoin(a); } } } return ''; };`,
+    `const _wrapResource = (key, includes, slotParams, wrappers, resourceType, decorationTagName, cssClassName, decoration, decorations) => {`,
+    `  const _slotFn = includes != null && typeof includes[key] === 'function' ? includes[key] : null;`,
+    `  const _raw = _slotFn ? _slotFn(slotParams ?? {}) : null;`,
+    `  const _rawClass = _raw != null && !Array.isArray(_raw) && typeof _raw === 'object' ? _raw._class : undefined;`,
+    `  let r = _raw != null ? _arrJoin(_raw) : _incSlot(includes, key, slotParams);`,
+    `  const cfg = wrappers?.[key] ?? (resourceType ? wrappers?.[resourceType] : undefined);`,
+    `  const decCfg = decorations?.[key] ?? (resourceType ? decorations?.[resourceType] : undefined);`,
+    `  const effectiveDecTag = decCfg?.decorationTagName ?? decorationTagName;`,
+    `  const effectiveCssClass = [decCfg?.cssClassName, cssClassName].filter(Boolean).join(' ') || undefined;`,
+    `  const effectiveDecoration = decCfg?.decoration !== undefined ? decCfg.decoration : decoration;`,
+    `  if (cfg && typeof cfg === 'object' && cfg.childClass) {`,
     `    let d = 0, o = '', i = 0;`,
     `    while (i < r.length) {`,
     `      if (r[i] === '<') {`,
@@ -191,13 +218,29 @@ export function transpile(
     `    }`,
     `    r = o;`,
     `  }`,
-    `  if (cfg.wrapper) r = '<div class="' + cfg.wrapper + '">' + r + '</div>';`,
+    `  if (_raw?._hasOwnDecoration) {`,
+    `    const _ownDecTag = effectiveDecTag || 'div';`,
+    `    if (_ownDecTag !== 'false' && effectiveDecoration !== false) {`,
+    `      if (typeof cfg === 'string') r = '<' + _ownDecTag + ' class="' + cfg + '">' + r + '</' + _ownDecTag + '>';`,
+    `      else if (cfg?.wrapper) r = '<' + _ownDecTag + ' class="' + cfg.wrapper + '">' + r + '</' + _ownDecTag + '>';`,
+    `    }`,
+    `    return r;`,
+    `  }`,
+    `  if (effectiveDecTag && effectiveDecTag !== 'false' && effectiveDecoration !== false) {`,
+    `    const fnName = _slotFn ? _slotFn.name : '';`,
+    `    const rawClass = _rawClass ?? (fnName.startsWith('create') ? fnName.slice(6).replace(/^(.)/, (_, c) => c.toLowerCase()) : '');`,
+    `    const autoClass = resourceType ? resourceType.split('/').pop() ?? '' : rawClass;`,
+    `    const wrapClass = typeof cfg === 'string' ? cfg : (cfg?.wrapper ?? autoClass);`,
+    `    const finalClass = [wrapClass, effectiveCssClass].filter(Boolean).join(' ');`,
+    `    r = finalClass ? '<' + effectiveDecTag + ' class="' + finalClass + '">' + r + '</' + effectiveDecTag + '>' : '<' + effectiveDecTag + '>' + r + '</' + effectiveDecTag + '>';`,
+    `  }`,
     `  return r;`,
     `};`,
     '',
   ].join('\n');
 
   const resourceWrapperDecl = `const _staticResourceWrappers = ${JSON.stringify(resourceWrappers ?? {})};\n`;
+  const resourceDecorationDecl = `const _staticResourceDecorations = ${JSON.stringify(resourceDecorations ?? {})};\n`;
   const finalBody = restoreVarCasing(body, restoreMap);
 
   // For ESM, hoist import declarations (emitted at the top of body) before helpers
@@ -215,16 +258,24 @@ export function transpile(
   }
 
   const slotsSet = new Set<string>();
-  for (const m of codeBody.matchAll(/_incSlot\(_includes,\s*'([^']+)'/g)) {
-    slotsSet.add(m[1]);
+  for (const m of codeBody.matchAll(
+    /_incSlot\(_includes,\s*'([^']+)'|_wrapResource\('([^']+)',\s*_includes,/g
+  )) {
+    slotsSet.add(m[1] ?? m[2]);
   }
   const slotsLine = slotsSet.size
-    ? (format === 'esm'
-        ? `\nexport const __slots__ = ${JSON.stringify([...slotsSet])};\n`
-        : `\nconst __slots__ = ${JSON.stringify([...slotsSet])};\nObject.assign(module.exports, { __slots__ });\nfor (const _fn of Object.values(module.exports)) { if (typeof _fn === 'function') _fn.__slots__ = __slots__; }\n`)
+    ? format === 'esm'
+      ? `\nexport const __slots__ = ${JSON.stringify([...slotsSet])};\n`
+      : `\nconst __slots__ = ${JSON.stringify([...slotsSet])};\nObject.assign(module.exports, { __slots__ });\nfor (const _fn of Object.values(module.exports)) { if (typeof _fn === 'function') _fn.__slots__ = __slots__; }\n`
     : '';
   return (
-    banner + esmImports + helpers + resourceWrapperDecl + codeBody + slotsLine
+    banner +
+    esmImports +
+    helpers +
+    resourceWrapperDecl +
+    resourceDecorationDecl +
+    codeBody +
+    slotsLine
   );
 }
 
@@ -237,7 +288,7 @@ function transpileInlineHtl(
   omitAttrs: RegExp[],
   sourceDir: string,
   modelTransforms: Record<string, Record<string, ModelTransformValue>>,
-  fileOverrides: Record<string, string>,
+  fileOverrides: Record<string, string>
 ): string {
   const expandedSource = htlSource.replaceAll(
     /<sly\b([^>]*?)\/>/g,
@@ -262,12 +313,12 @@ function transpileInlineHtl(
     fileOverrides,
     undefined,
     'cjs',
-    false,
+    false
   );
 
   const declarations = restoreVarCasing(
     rawBody.replace(/\n\nmodule\.exports\s*=\s*\{[^}]*\};/, ''),
-    restoreMap,
+    restoreMap
   );
 
   const mapping = templates
@@ -326,20 +377,18 @@ function transpileNamedTemplates(
   fileOverrides: Record<string, string> = {},
   i18nDefault?: string,
   format: 'cjs' | 'esm' = 'cjs',
-  includeDynamicUsePathDecl: boolean = true,
+  includeDynamicUsePathDecl: boolean = true
 ): string {
-  const implicits = i18nDefault ? { ...AEM_IMPLICITS, _i18n: i18nDefault } : AEM_IMPLICITS;
+  const implicits = i18nDefault
+    ? { ...AEM_IMPLICITS, _i18n: i18nDefault }
+    : AEM_IMPLICITS;
   const localTemplates: Record<string, string> = Object.fromEntries(
     templates.map(({ name }) => [name, toPascalFnName('create', name)])
   );
   const fnNames: string[] = [];
   const esmImportLines: string[] = [];
   const parts = templates.map(({ name, params, node }) => {
-    const ctx = createContext(
-      omitAttrs,
-      sourceDir,
-      fileOverrides,
-    );
+    const ctx = createContext(omitAttrs, sourceDir, fileOverrides);
     Object.assign(ctx.localTemplates, localTemplates);
     for (const n of Object.keys(localTemplates)) ctx.definedVars.add(n);
     const templateDir = parseDirectives(node.attribs || {}, sourceDir);
@@ -379,7 +428,10 @@ function transpileNamedTemplates(
     const jsUseBindings: Record<string, string> = {};
     if (format === 'esm') {
       for (const [useName, filePath] of Object.entries(ctx.jsFileUse)) {
-        const { importDecl, constDecl, bindingName } = buildJsUseEsm(useName, filePath);
+        const { importDecl, constDecl, bindingName } = buildJsUseEsm(
+          useName,
+          filePath
+        );
         if (!esmImportLines.includes(importDecl)) {
           esmImportLines.push(importDecl);
           if (constDecl) esmImportLines.push(constDecl);
@@ -394,22 +446,44 @@ function transpileNamedTemplates(
         default:
           implicits[p] ??
           (ctx.jsFileUse[p]
-            ? (format === 'esm' ? (jsUseBindings[p] ?? buildJsUseDefault(ctx.jsFileUse[p])) : buildJsUseDefault(ctx.jsFileUse[p]))
+            ? format === 'esm'
+              ? (jsUseBindings[p] ?? buildJsUseDefault(ctx.jsFileUse[p]))
+              : buildJsUseDefault(ctx.jsFileUse[p])
             : undefined) ??
           ctx.useDefaults[p] ??
           (params.includes(p) ? "''" : '{}'),
       }))
     );
     const transformDecls = buildModelTransformDecls(ctx.uses, modelTransforms);
-    const contentIsEscapeHatch = ctx.refs.has('content') && !('content' in ctx.uses) && !('content' in ctx.jsFileUse) && !ctx.definedVars.has('content');
-    return buildFunctionBody(fnName, paramStr, setDecls, body, transformDecls, contentIsEscapeHatch);
+    const contentIsEscapeHatch =
+      ctx.refs.has('content') &&
+      !('content' in ctx.uses) &&
+      !('content' in ctx.jsFileUse) &&
+      !ctx.definedVars.has('content');
+    return buildFunctionBody(
+      fnName,
+      paramStr,
+      setDecls,
+      body,
+      transformDecls,
+      contentIsEscapeHatch,
+      {
+        _class: fnName.startsWith('create')
+          ? fnName.slice(6).replace(/^(.)/, (_, c) => c.toLowerCase())
+          : '',
+        _resourceType: deriveResourceType(sourceDir),
+      }
+    );
   });
-  const exportLine = format === 'esm'
-    ? `export { ${fnNames.join(', ')} };`
-    : `module.exports = { ${fnNames.join(', ')} };`;
+  const exportLine =
+    format === 'esm'
+      ? `export { ${fnNames.join(', ')} };`
+      : `module.exports = { ${fnNames.join(', ')} };`;
   parts.push(exportLine);
   const prefix = esmImportLines.length ? esmImportLines.join('\n') + '\n' : '';
-  const dynamicUsePathDecl = includeDynamicUsePathDecl ? buildDynamicUsePathDecl(sourceDir) : '';
+  const dynamicUsePathDecl = includeDynamicUsePathDecl
+    ? buildDynamicUsePathDecl(sourceDir)
+    : '';
   return prefix + dynamicUsePathDecl + parts.join('\n\n');
 }
 
@@ -427,23 +501,21 @@ function transpileSingleTemplate(
   fileOverrides: Record<string, string> = {},
   i18nDefault?: string,
   format: 'cjs' | 'esm' = 'cjs',
-  includeDynamicUsePathDecl: boolean = true,
+  includeDynamicUsePathDecl: boolean = true
 ): string {
-  const implicits = i18nDefault ? { ...AEM_IMPLICITS, _i18n: i18nDefault } : AEM_IMPLICITS;
-  const ctx = createContext(
-    omitAttrs,
-    sourceDir,
-    fileOverrides,
-  );
+  const implicits = i18nDefault
+    ? { ...AEM_IMPLICITS, _i18n: i18nDefault }
+    : AEM_IMPLICITS;
+  const ctx = createContext(omitAttrs, sourceDir, fileOverrides);
   let body = walkNodes(document.children, ctx);
   const fnName = toPascalFnName('create', deriveBaseName(filename));
 
-  if (wrapperClass === true) {
-    const folderName = path.basename(path.dirname(path.resolve(filename)));
-    body = `<div class="${folderName}\${_wrapperClass ? ' ' + _wrapperClass : ''}">${body.trim()}</div>`;
-  } else if (typeof wrapperClass === 'string') {
-    body = `<div class="${wrapperClass}\${_wrapperClass ? ' ' + _wrapperClass : ''}">${body.trim()}</div>`;
-  }
+  const wrapperClassValue: string | false =
+    wrapperClass === true
+      ? path.basename(path.dirname(path.resolve(filename)))
+      : typeof wrapperClass === 'string'
+        ? wrapperClass
+        : false;
 
   const params: ParamDecl[] = Object.keys(ctx.uses).map((name) => ({
     name,
@@ -454,7 +526,10 @@ function transpileSingleTemplate(
   const jsUseBindings: Record<string, string> = {};
   for (const [name, filePath] of Object.entries(ctx.jsFileUse)) {
     if (format === 'esm') {
-      const { importDecl, constDecl, bindingName } = buildJsUseEsm(name, filePath);
+      const { importDecl, constDecl, bindingName } = buildJsUseEsm(
+        name,
+        filePath
+      );
       esmImportLines.push(importDecl);
       if (constDecl) esmImportLines.push(constDecl);
       jsUseBindings[name] = bindingName;
@@ -467,7 +542,13 @@ function transpileSingleTemplate(
   const setDecls = buildSetDecls(ctx.sets);
 
   for (const [name, defaultVal] of Object.entries(implicits)) {
-    if (!ctx.uses[name] && !ctx.jsFileUse[name] && (body.includes(name) || setDecls.includes(name))) {
+    if (
+      !ctx.uses[name] &&
+      !ctx.jsFileUse[name] &&
+      (body.includes(name) ||
+        setDecls.includes(name) ||
+        (name === '_wrapperClass' && !!wrapperClassValue))
+    ) {
       params.push({ name, default: defaultVal });
     }
   }
@@ -477,16 +558,35 @@ function transpileSingleTemplate(
 
   const transformDecls = buildModelTransformDecls(ctx.uses, modelTransforms);
   const paramStr = buildParamStr(params);
-  const contentIsEscapeHatch = ctx.refs.has('content') && !('content' in ctx.uses) && !('content' in ctx.jsFileUse) && !ctx.definedVars.has('content');
-  const exportLine = format === 'esm'
-    ? `\nexport { ${fnName} };`
-    : `\nmodule.exports = { ${fnName} };`;
+  const contentIsEscapeHatch =
+    ctx.refs.has('content') &&
+    !('content' in ctx.uses) &&
+    !('content' in ctx.jsFileUse) &&
+    !ctx.definedVars.has('content');
+  const exportLine =
+    format === 'esm'
+      ? `\nexport { ${fnName} };`
+      : `\nmodule.exports = { ${fnName} };`;
   const prefix = esmImportLines.length ? esmImportLines.join('\n') + '\n' : '';
-  const dynamicUsePathDecl = includeDynamicUsePathDecl ? buildDynamicUsePathDecl(sourceDir) : '';
+  const dynamicUsePathDecl = includeDynamicUsePathDecl
+    ? buildDynamicUsePathDecl(sourceDir)
+    : '';
   return (
     prefix +
     dynamicUsePathDecl +
-    buildFunctionBody(fnName, paramStr, setDecls, body, transformDecls, contentIsEscapeHatch) +
+    buildFunctionBody(
+      fnName,
+      paramStr,
+      setDecls,
+      body,
+      transformDecls,
+      contentIsEscapeHatch,
+      {
+        _class: deriveBaseName(filename),
+        _resourceType: deriveResourceType(sourceDir),
+        _wrapperClass: wrapperClassValue,
+      }
+    ) +
     exportLine
   );
 }
@@ -500,11 +600,15 @@ function buildJsUseDefault(filePath: string): string {
 
 function buildJsUseEsm(
   varName: string,
-  filePath: string,
+  filePath: string
 ): { importDecl: string; constDecl: string | null; bindingName: string } {
   const bindingName = `_jsuse_${varName}`;
   if (filePath.endsWith('.json')) {
-    return { importDecl: `import ${bindingName} from '${filePath}';`, constDecl: null, bindingName };
+    return {
+      importDecl: `import ${bindingName} from '${filePath}';`,
+      constDecl: null,
+      bindingName,
+    };
   }
   const rawName = `${bindingName}_raw`;
   return {
@@ -516,10 +620,16 @@ function buildJsUseEsm(
 
 function findContentSlot(body: string): string | null {
   const slots: string[] = [];
-  for (const m of body.matchAll(/_incSlot\(_includes,\s*'([^']+)'/g)) {
-    slots.push(m[1]);
+  for (const m of body.matchAll(
+    /_incSlot\(_includes,\s*'([^']+)'|_wrapResource\('([^']+)',\s*_includes,/g
+  )) {
+    slots.push(m[1] ?? m[2]);
   }
-  return slots.find(s => PARSYS_SLOTS.has(s)) ?? slots[0] ?? null;
+  const found = slots.find((s) => PARSYS_SLOTS.has(s)) ?? slots[0] ?? null;
+  if (!found) return null;
+  // Strip _N suffix so content arrays distribute across par_0, par_1, etc.
+  const baseMatch = /^(.+)_\d+$/.exec(found);
+  return baseMatch ? baseMatch[1] : found;
 }
 
 function buildFunctionBody(
@@ -529,13 +639,21 @@ function buildFunctionBody(
   body: string,
   transformDecls = '',
   contentParamIsEscapeHatch = false,
+  meta: {
+    _class: string;
+    _resourceType: string | null;
+    _wrapperClass?: string | false;
+  } = {
+    _class: '',
+    _resourceType: null,
+  }
 ): string {
   const lines = [`const ${fnName} = (${paramStr}) => {`];
   if (paramStr.includes('_includes')) {
     const slot = findContentSlot(body);
     const hasContentParam = contentParamIsEscapeHatch;
     const contentSource = hasContentParam
-      ? '(typeof content === "function" || (content != null && typeof content === "object" && !Array.isArray(content) && Object.keys(content).length > 0)) ? content : _rest.content'
+      ? '(typeof content === "function" || Array.isArray(content) || (content != null && typeof content === "object" && Object.keys(content).length > 0)) ? content : _rest.content'
       : '_rest.content';
     const hasModelParam = /\bmodel\s*=/.test(paramStr);
     const contentCallArg = hasModelParam ? '{ model, ..._rest }' : '_rest';
@@ -543,22 +661,47 @@ function buildFunctionBody(
       `  const _contentArg = ${contentSource};`,
       '  if (_contentArg != null) {',
       `    const _contentValue = typeof _contentArg === 'function' ? _contentArg(${contentCallArg}) : _contentArg;`,
-      `    if (_contentValue != null && typeof _contentValue === 'object' && !Array.isArray(_contentValue)) {`,
+      `    if (_contentValue != null && typeof _contentValue === 'object' && !Array.isArray(_contentValue) && _contentValue.toString === Object.prototype.toString) {`,
       '      _includes = Object.assign(_contentValue, _includes);',
-      `    }${slot ? ' else {' : ''}`,
+      `    }${slot ? ' else {' : ''}`
     );
     if (slot) {
       lines.push(
         `      _includes = Object.assign({ '${slot}': _contentValue }, _includes);`,
-        '    }',
+        '    }'
       );
     }
     lines.push('  }');
   }
   if (transformDecls) lines.push(transformDecls);
   if (setDecls) lines.push(setDecls);
-  lines.push(`  return /* html */\`${body.trim()}\`;`, '};');
+  if (meta._wrapperClass) {
+    lines.push(
+      `  const _html = /* html */\`${body.trim()}\`;`,
+      `  const _wrapClass = \`${meta._wrapperClass}\${_wrapperClass ? ' ' + _wrapperClass : ''}\`;`,
+      `  return { toString: () => \`<div class="\${_wrapClass}">\${_html}</div>\`, _class: ${JSON.stringify(meta._class)}, _resourceType: ${JSON.stringify(meta._resourceType)}, _slots: typeof __slots__ !== 'undefined' ? __slots__ : undefined, _hasOwnDecoration: true, _decorationTagName: undefined, _attrs: {} };`,
+      '};'
+    );
+  } else {
+    lines.push(
+      `  const _html = /* html */\`${body.trim()}\`;`,
+      `  return { toString: () => _html, _class: ${JSON.stringify(meta._class)}, _resourceType: ${JSON.stringify(meta._resourceType)}, _slots: typeof __slots__ !== 'undefined' ? __slots__ : undefined, _hasOwnDecoration: false, _decorationTagName: undefined, _attrs: {} };`,
+      '};'
+    );
+  }
   return lines.join('\n');
+}
+
+function deriveResourceType(sourceDir: string): string | null {
+  if (!sourceDir) return null;
+  const jcrRoot = findNearestJcrRoot(sourceDir);
+  if (!jcrRoot) return null;
+  const rel = path
+    .relative(jcrRoot, path.resolve(sourceDir))
+    .replaceAll('\\', '/');
+  const parts = rel.split('/').filter(Boolean);
+  if (parts.length < 2) return null;
+  return parts.slice(1).join('/'); // strip 'apps' / 'libs' prefix
 }
 
 function findNearestJcrRoot(startDir: string): string | null {
@@ -597,13 +740,19 @@ function buildDynamicUsePathMap(sourceDir: string): Record<string, string> {
   const files = collectFiles(rootDir, new Set(['.html', '.js', '.json']));
 
   for (const filePath of files) {
-    const relToSource = path.relative(sourceRoot, filePath).replaceAll('\\', '/');
-    const requirePath = relToSource.startsWith('.') ? relToSource : `./${relToSource}`;
+    const relToSource = path
+      .relative(sourceRoot, filePath)
+      .replaceAll('\\', '/');
+    const requirePath = relToSource.startsWith('.')
+      ? relToSource
+      : `./${relToSource}`;
     map[requirePath] = requirePath;
     if (requirePath.startsWith('./')) map[requirePath.slice(2)] = requirePath;
 
     if (rootDir.endsWith('jcr_root')) {
-      const relToJcrRoot = path.relative(rootDir, filePath).replaceAll('\\', '/');
+      const relToJcrRoot = path
+        .relative(rootDir, filePath)
+        .replaceAll('\\', '/');
       map[`/${relToJcrRoot}`] = requirePath;
     }
   }
@@ -625,7 +774,7 @@ function buildDynamicUsePathDecl(sourceDir: string): string {
 
 function addUseDefaultRefs(
   useDefaults: Record<string, string>,
-  refs: Set<string>,
+  refs: Set<string>
 ): void {
   for (const expr of Object.values(useDefaults)) {
     if (!expr) continue;
@@ -633,7 +782,9 @@ function addUseDefaultRefs(
     const stripped = String(expr)
       .replaceAll(/'[^']*'/g, '')
       .replaceAll(/"[^"]*"/g, '');
-    for (const m of stripped.matchAll(/(?<![?.])\b([a-zA-Z_$][a-zA-Z0-9_$]*)\b/g)) {
+    for (const m of stripped.matchAll(
+      /(?<![?.])\b([a-zA-Z_$][a-zA-Z0-9_$]*)\b/g
+    )) {
       if (
         stripped[m.index + m[0].length] === '$' &&
         stripped[m.index + m[0].length + 1] === '{'
@@ -688,7 +839,7 @@ function buildModelTransformDecls(
 
 function resolveModelTransformValue(
   value: ModelTransformValue,
-  varName: string,
+  varName: string
 ): string {
   if (typeof value !== 'function') {
     return String(value).replaceAll(/\bmodel\b/g, varName);
@@ -716,7 +867,7 @@ function resolveModelTransformValue(
   if (typeof legacyResult !== 'string') {
     throw new TypeError(
       `[htl-to-js] modelTransforms value for "${varName}" is not serializable. ` +
-      `Use a string expression or a function with recognized bindings: model, _includes, varName, or "${varName}".`
+        `Use a string expression or a function with recognized bindings: model, _includes, varName, or "${varName}".`
     );
   }
   return legacyResult;
@@ -733,7 +884,7 @@ function shouldTreatZeroArgStringResultAsLegacy(result: string): boolean {
 
 function serializeDirectModelTransform(
   value: Function,
-  varName: string,
+  varName: string
 ): string | null {
   const parsed = parseDirectTransformSource(value);
   if (!parsed) return null;
@@ -749,7 +900,7 @@ function serializeDirectModelTransform(
 }
 
 function parseDirectTransformSource(
-  value: Function,
+  value: Function
 ): { params: string; body: string; isBlock: boolean } | null {
   const source = Function.prototype.toString.call(value).trim();
 
@@ -787,7 +938,10 @@ function parseDirectTransformSource(
     };
   }
 
-  const fnMatch = /^function\b[^()]*(?:\([^)]*\))?\s*\(\s*\{([\s\S]*?)\}\s*\)\s*\{([\s\S]*)\}$/.exec(source);
+  const fnMatch =
+    /^function\b[^()]*(?:\([^)]*\))?\s*\(\s*\{([\s\S]*?)\}\s*\)\s*\{([\s\S]*)\}$/.exec(
+      source
+    );
   if (fnMatch) {
     return {
       params: fnMatch[1],
@@ -801,7 +955,7 @@ function parseDirectTransformSource(
 
 function parseDirectTransformBindings(
   paramsSource: string,
-  varName: string,
+  varName: string
 ): Map<string, string> | null {
   const bindings = new Map<string, string>();
   const entries = paramsSource
@@ -810,9 +964,15 @@ function parseDirectTransformBindings(
     .filter(Boolean);
 
   for (const entry of entries) {
-    const aliasMatch = /^(model|_includes|varName|content)\s*:\s*([A-Za-z_$][\w$]*)$/.exec(entry);
+    const aliasMatch =
+      /^(model|_includes|varName|content)\s*:\s*([A-Za-z_$][\w$]*)$/.exec(
+        entry
+      );
     if (aliasMatch) {
-      bindings.set(aliasMatch[2], resolveDirectBindingValue(aliasMatch[1], varName));
+      bindings.set(
+        aliasMatch[2],
+        resolveDirectBindingValue(aliasMatch[1], varName)
+      );
       continue;
     }
 
@@ -841,7 +1001,9 @@ function parseDirectTransformBindings(
     }
 
     // Any other aliased identifier is treated as a _rest binding (e.g. ({ fragment: frag }) → _rest.fragment).
-    const restAliasMatch = /^([A-Za-z_$][\w$]*)\s*:\s*([A-Za-z_$][\w$]*)$/.exec(entry);
+    const restAliasMatch = /^([A-Za-z_$][\w$]*)\s*:\s*([A-Za-z_$][\w$]*)$/.exec(
+      entry
+    );
     if (restAliasMatch) {
       bindings.set(restAliasMatch[2], `_rest.${restAliasMatch[1]}`);
       continue;
@@ -853,23 +1015,30 @@ function parseDirectTransformBindings(
   return bindings;
 }
 
-function resolveDirectBindingValue(bindingName: string, varName: string): string {
+function resolveDirectBindingValue(
+  bindingName: string,
+  varName: string
+): string {
   if (bindingName === 'model') return varName;
   if (bindingName === '_includes') return '_includes';
-  if (bindingName === 'content') return '(typeof content === "function" ? content : _rest.content)';
+  if (bindingName === 'content')
+    return '(typeof content === "function" ? content : _rest.content)';
   return JSON.stringify(varName);
 }
 
 function replaceDirectTransformBindings(
   expression: string,
-  bindings: Map<string, string>,
+  bindings: Map<string, string>
 ): string {
   let output = expression;
   for (const [localName, replacement] of bindings) {
     if (localName === replacement) continue;
     output = output.replace(
-      new RegExp(String.raw`(?<=[{,]\s*)${escapeRegExp(localName)}(?=\s*[,}])`, 'g'),
-      `${localName}: ${replacement}`,
+      new RegExp(
+        String.raw`(?<=[{,]\s*)${escapeRegExp(localName)}(?=\s*[,}])`,
+        'g'
+      ),
+      `${localName}: ${replacement}`
     );
     output = output.replace(
       new RegExp(
@@ -898,25 +1067,36 @@ export function generateDts(jsSource: string): string {
   const lines: string[] = [];
   const slotsMatch = /const __slots__ = (\[[^\]]*\])/.exec(jsSource);
   const slots: string[] = slotsMatch ? JSON.parse(slotsMatch[1]) : [];
-  for (const m of jsSource.matchAll(/const (create\w+) = \(\{((?:[^{}]|\{[^}]*\})*)\}\s*=\s*\{\}\)/g)) {
+  for (const m of jsSource.matchAll(
+    /const (create\w+) = \(\{((?:[^{}]|\{[^}]*\})*)\}\s*=\s*\{\}\)/g
+  )) {
     const fnName = m[1];
     const paramBlock = m[2];
     const paramNames = paramBlock
       .split(',')
       .map((p) => p.replace(/\s*=[\s\S]*/g, '').trim())
       .filter((p) => /^\w+$/.test(p));
-    const slopMapper = slots.map((s) => `'${s}'?: string | (() => string)`).join('; ');
-    const incType = slots.length > 0
-      ? `{ ${slopMapper}; [key: string]: string | (() => string) | undefined }`
-      : `Record<string, string | (() => string) | undefined>`;
-    const propList = paramNames.map((p) =>
-      p === '_includes' ? `${p}?: ${incType}` : `${p}?: any`
-    ).join('; ');
-    const propsType = paramNames.length ? `{ ${propList} }` : 'Record<string, any>';
-    lines.push(`export declare function ${fnName}(args?: ${propsType}): string;`);
+    const slopMapper = slots
+      .map((s) => `'${s}'?: string | (() => string)`)
+      .join('; ');
+    const incType =
+      slots.length > 0
+        ? `{ ${slopMapper}; [key: string]: string | (() => string) | undefined }`
+        : `Record<string, string | (() => string) | undefined>`;
+    const propList = paramNames
+      .map((p) => (p === '_includes' ? `${p}?: ${incType}` : `${p}?: any`))
+      .join('; ');
+    const propsType = paramNames.length
+      ? `{ ${propList} }`
+      : 'Record<string, any>';
+    lines.push(
+      `export declare function ${fnName}(args?: ${propsType}): string;`
+    );
   }
   if (slotsMatch) {
-    lines.push(`export declare const __slots__: ${slotsMatch[1].replace(/"/g, "'")};`);
+    lines.push(
+      `export declare const __slots__: ${slotsMatch[1].replace(/"/g, "'")};`
+    );
   }
   return lines.join('\n') + '\n';
 }

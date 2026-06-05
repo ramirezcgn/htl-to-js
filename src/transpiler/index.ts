@@ -176,7 +176,7 @@ export function transpile(
 
   const banner = `// AUTO-GENERATED from ${path.basename(filename)} — DO NOT EDIT\n\n`;
   const helpers = [
-    `const _htlAttr = (v) => v == null ? '' : (Array.isArray(v) ? v.map(x => x == null ? '' : (typeof x === 'object' ? JSON.stringify(x) : String(x)).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')).join(',') : typeof v === 'object' ? JSON.stringify(v).replace(/"/g, '&quot;') : String(v).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'));`,
+    `const _htlAttr = (v) => v == null ? '' : (Array.isArray(v) ? (v.some(x => x != null && typeof x === 'object') ? JSON.stringify(v).replace(/"/g, '&quot;') : v.map(x => x == null ? '' : String(x).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')).join(',')) : typeof v === 'object' ? JSON.stringify(v).replace(/"/g, '&quot;') : String(v).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'));`,
     `const _htlText = (v) => { if (v == null) return ''; const s = Array.isArray(v) ? v.map(x => x == null ? '' : typeof x === 'object' ? JSON.stringify(x) : String(x)).join(',') : typeof v === 'object' ? JSON.stringify(v) : String(v); return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); };`,
     `const _htlCtx = (v, ctx) => { if (ctx === 'html' || ctx === 'unsafe') return String(v ?? ''); if (ctx === 'number') { const n = Number(v); return (!v && v !== 0) || isNaN(n) ? '' : String(n); } if (ctx === 'uri') { try { return encodeURI(String(v ?? '')).replace(/"/g, '&quot;'); } catch { return ''; } } return _htlText(v); };`,
     `const _htlCtxAttr = (v, ctx) => { if (ctx === 'html' || ctx === 'unsafe') return String(v ?? ''); if (ctx === 'uri') return _htlUri(v); if (ctx === 'number') return _htlNum(v) ?? ''; return _htlAttr(v); };`,
@@ -219,10 +219,13 @@ export function transpile(
     `    r = o;`,
     `  }`,
     `  if (_raw?._hasOwnDecoration) {`,
+    `    const _inner = _raw._innerHtml != null ? _raw._innerHtml : r;`,
     `    const _ownDecTag = effectiveDecTag || 'div';`,
     `    if (_ownDecTag !== 'false' && effectiveDecoration !== false) {`,
     `      if (typeof cfg === 'string') r = '<' + _ownDecTag + ' class="' + cfg + '">' + r + '</' + _ownDecTag + '>';`,
     `      else if (cfg?.wrapper) r = '<' + _ownDecTag + ' class="' + cfg.wrapper + '">' + r + '</' + _ownDecTag + '>';`,
+    `      else if (effectiveDecTag) { const _dc = [_rawClass, effectiveCssClass].filter(Boolean).join(' '); r = _dc ? '<' + _ownDecTag + ' class="' + _dc + '">' + _inner + '</' + _ownDecTag + '>' : '<' + _ownDecTag + '>' + _inner + '</' + _ownDecTag + '>'; }`,
+    `      else r = _inner;`,
     `    }`,
     `    return r;`,
     `  }`,
@@ -679,7 +682,7 @@ function buildFunctionBody(
     lines.push(
       `  const _html = /* html */\`${body.trim()}\`;`,
       `  const _wrapClass = \`${meta._wrapperClass}\${_wrapperClass ? ' ' + _wrapperClass : ''}\`;`,
-      `  return { toString: () => \`<div class="\${_wrapClass}">\${_html}</div>\`, _class: ${JSON.stringify(meta._class)}, _resourceType: ${JSON.stringify(meta._resourceType)}, _slots: typeof __slots__ !== 'undefined' ? __slots__ : undefined, _hasOwnDecoration: true, _decorationTagName: undefined, _attrs: {} };`,
+      `  return { toString: () => \`<div class="\${_wrapClass}">\${_html}</div>\`, _class: ${JSON.stringify(meta._class)}, _resourceType: ${JSON.stringify(meta._resourceType)}, _slots: typeof __slots__ !== 'undefined' ? __slots__ : undefined, _hasOwnDecoration: true, _innerHtml: _html, _decorationTagName: undefined, _attrs: {} };`,
       '};'
     );
   } else {

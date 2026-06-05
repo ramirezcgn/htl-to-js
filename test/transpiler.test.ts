@@ -583,7 +583,7 @@ describe('transpile — object serialization', () => {
     const fn = strFn(Object.values(mod.exports)[0] as Function);
     const html = fn({ model: { slides: [{ title: 'A' }, { title: 'B' }] } });
     expect(html).not.toContain('[object Object]');
-    expect(html).toContain('{&quot;title&quot;:&quot;A&quot;},{&quot;title&quot;:&quot;B&quot;}');
+    expect(html).toContain('[{&quot;title&quot;:&quot;A&quot;},{&quot;title&quot;:&quot;B&quot;}]');
   });
 
   it('_arrJoin JSON-encodes plain objects passed as slot values', () => {
@@ -2762,6 +2762,29 @@ describe('transpile — resourceWrappers', () => {
     expect(html).not.toContain('<div class="aem-Grid">');
     // component's own decoration is still there (from wrapperClass)
     expect(html).toContain('<div class="column">');
+    expect(html).toContain('<p>inner</p>');
+  });
+
+  it('no decorationTagName — slot with wrapperClass renders inner HTML without extra wrapper', () => {
+    const subCode = transpile(`<p>inner</p>`, {
+      filename: '/apps/mysite/column/column.html',
+      wrapperClass: true,
+    });
+    const subMod: any = {};
+    new Function('module', subCode)(subMod);
+    const createColumn = Object.values(subMod.exports)[0] as Function;
+
+    // data-sly-resource with no decorationTagName at all
+    const src = `<sly data-sly-resource="\${'slot'}"></sly>`;
+    const code = transpile(src, { filename: 'test.html' });
+    const mod: any = {};
+    new Function('module', code)(mod);
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
+    const html = fn({ _includes: { slot: () => createColumn() } });
+
+    // No extra decoration wrapper should be added
+    expect(html).not.toContain('<div class="column">');
+    // Inner content from the slot is rendered directly
     expect(html).toContain('<p>inner</p>');
   });
 });

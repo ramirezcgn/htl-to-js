@@ -74,6 +74,23 @@ module.exports = {
 };
 ```
 
+### Storybook preview setup
+
+Since `createXxx` functions return an enriched object (not a plain string), add a global decorator in `.storybook/preview.js` to coerce the result before Storybook validates it:
+
+```js
+export const decorators = [
+  (storyFn, context) => {
+    const result = storyFn(context);
+    return result != null && typeof result === 'object' && '_class' in result
+      ? result.toString()
+      : result;
+  },
+];
+```
+
+Without this, Storybook throws _"Did you forget to return the HTML snippet from the story?"_ even when the render function returns a valid enriched component result. The decorator lets stories stay as `render: (args) => createComponent(args)` without any extra wrapping.
+
 ---
 
 ## HTL directive support

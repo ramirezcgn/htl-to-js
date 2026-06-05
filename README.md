@@ -13,6 +13,7 @@ Each generated `createXxx` function returns an object that behaves as a string (
   _class: 'image',            // CSS class derived from the component path
   _resourceType: 'mysite/components/image', // full resource type from jcr_root
   _slots: ['header', 'footer'], // static slot keys (same as __slots__)
+  _hasOwnDecoration: false,   // true when the component was transpiled with wrapperClass
   _decorationTagName: undefined,
   _attrs: {},
 }
@@ -153,8 +154,7 @@ href="${_htlDynAttr('href', _htlUri(model?.url ?? ''))}"
 
 Attribute values are automatically escaped via the `_htlAttr` helper:
 - `&` → `&amp;`, `<` → `&lt;`, `>` → `&gt;`, `"` → `&quot;`
-- Array values are rendered as comma-joined strings: `['a','b']` → `a,b`
-- Plain object values are serialized with `JSON.stringify`
+- Array and object values are serialized with `JSON.stringify` (quotes escaped to `&quot;`): `['a','b']` → `[&quot;a&quot;,&quot;b&quot;]`
 - `null`/`undefined` produce an empty string
 
 Dynamic named attributes (`data-sly-attribute.name`) use `_htlDynAttr`:
@@ -231,13 +231,13 @@ The loader generates:
 ```js
 // AUTO-GENERATED from accordion.html — DO NOT EDIT
 
-const _htlAttr = (v) => v == null ? '' : (typeof v === 'object' ? JSON.stringify(v).replace(/"/g, '&quot;') : String(v).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'));
+const _htlAttr = (v) => v == null ? '' : (Array.isArray(v) || typeof v === 'object' ? JSON.stringify(v).replace(/"/g, '&quot;') : String(v).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'));
 const _htlDynAttr = (name, val) => { ... };
 const _htlSpreadAttrs = (obj) => { ... };
 
 const createAccordion = ({ accordion = {}, properties = {} } = {}) => {
   const _html = /* html */`<div class="cmp-accordion ${_htlAttr(properties?.theme)}" id="${_htlAttr(accordion?.id)}">...</div>`;
-  return { toString: () => _html, _class: 'accordion', _resourceType: null, _slots: undefined, _decorationTagName: undefined, _attrs: {} };
+  return { toString: () => _html, _class: 'accordion', _resourceType: null, _slots: undefined, _hasOwnDecoration: false, _decorationTagName: undefined, _attrs: {} };
 };
 module.exports = { createAccordion };
 ```
@@ -262,7 +262,7 @@ const createDefault = ({ model = {} } = {}) => {
   const _html = /* html */`<a class="template" href="${_htlAttr(model?.url)}">
     <h3>${(model?.title) ?? ''}</h3>
   </a>`;
-  return { toString: () => _html, _class: 'default', _resourceType: null, _slots: undefined, _decorationTagName: undefined, _attrs: {} };
+  return { toString: () => _html, _class: 'default', _resourceType: null, _slots: undefined, _hasOwnDecoration: false, _decorationTagName: undefined, _attrs: {} };
 };
 module.exports = { createDefault };
 ```
@@ -412,6 +412,8 @@ When `decorationTagName` is set and the slot function's return value carries a `
 3. **`fn.name`** — if the slot function is named `createImage`, the class `image` is derived from the function name
 4. **`cssClassName`** — appended after the auto-derived class
 
+When `decorationTagName` is **not set**, no decoration wrapper is added — the slot's inner HTML is rendered directly, even if the component was transpiled with `wrapperClass: true`.
+
 ```js
 // Story: slot function returns enriched object → class derived automatically
 export const Default = {
@@ -459,7 +461,7 @@ export declare function createHeader(args?: {
     'footer'?: string | (() => string);
     [key: string]: string | (() => string) | undefined;
   };
-}): { toString(): string; _class: string; _resourceType: string | null; _slots: string[] | undefined; _decorationTagName: undefined; _attrs: {} };
+}): { toString(): string; _class: string; _resourceType: string | null; _slots: string[] | undefined; _hasOwnDecoration: boolean; _decorationTagName: undefined; _attrs: {} };
 export declare const __slots__: ['hero', 'footer'];
 ```
 

@@ -5258,26 +5258,26 @@ describe('transpile — _htlIn helper (in operator)', () => {
 // ---------------------------------------------------------------------------
 
 describe('transpile — _htlAttr array rendering', () => {
-  it('renders a string array as comma-joined attribute value', () => {
+  it('renders a string array as JSON in attribute value', () => {
     const src = `<div title="\${model.tags}">content</div>`;
     const code = transpile(src, { filename: 'test.html' });
     const mod: any = {};
     new Function('module', code)(mod);
     const fn = strFn(Object.values(mod.exports)[0] as Function);
     const html = fn({ model: { tags: ['one', 'two', 'three'] } });
-    expect(html).toContain('title="one,two,three"');
+    expect(html).toContain('title="[&quot;one&quot;,&quot;two&quot;,&quot;three&quot;]"');
   });
 
-  it('HTML-escapes each element of the array', () => {
+  it('HTML-escapes quotes in JSON-serialized array', () => {
     const src = `<div title="\${model.tags}">content</div>`;
     const code = transpile(src, { filename: 'test.html' });
     const mod: any = {};
     new Function('module', code)(mod);
     const fn = strFn(Object.values(mod.exports)[0] as Function);
     const html = fn({ model: { tags: ['<foo>', '&bar'] } });
-    expect(html).toContain('&lt;foo&gt;');
-    expect(html).toContain('&amp;bar');
-    expect(html).not.toContain('<foo>');
+    expect(html).toContain('&quot;<foo>&quot;');
+    expect(html).toContain('&quot;&bar&quot;');
+    expect(html).not.toContain('"<foo>"');
   });
 
   it('still serializes plain objects as JSON in attributes', () => {

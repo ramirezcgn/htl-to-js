@@ -48,6 +48,8 @@ const PARSYS_SLOTS = new Set([
   'rightpar',
 ]);
 
+const DEFAULT_FUNCTION_META = { _class: '', _resourceType: null } as const;
+
 interface TranspileOptions {
   filename?: string;
   omitAttrs?: RegExp[];
@@ -176,7 +178,7 @@ export function transpile(
 
   const banner = `// AUTO-GENERATED from ${path.basename(filename)} — DO NOT EDIT\n\n`;
   const helpers = [
-    `const _htlAttr = (v) => v == null ? '' : (Array.isArray(v) ? (v.some(x => x != null && typeof x === 'object') ? JSON.stringify(v).replace(/"/g, '&quot;') : v.map(x => x == null ? '' : String(x).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')).join(',')) : typeof v === 'object' ? JSON.stringify(v).replace(/"/g, '&quot;') : String(v).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'));`,
+    `const _htlAttr = (v) => v == null ? '' : (Array.isArray(v) ? JSON.stringify(v).replace(/"/g, '&quot;') : typeof v === 'object' ? JSON.stringify(v).replace(/"/g, '&quot;') : String(v).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'));`,
     `const _htlText = (v) => { if (v == null) return ''; const s = Array.isArray(v) ? v.map(x => x == null ? '' : typeof x === 'object' ? JSON.stringify(x) : String(x)).join(',') : typeof v === 'object' ? JSON.stringify(v) : String(v); return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); };`,
     `const _htlCtx = (v, ctx) => { if (ctx === 'html' || ctx === 'unsafe') return String(v ?? ''); if (ctx === 'number') { const n = Number(v); return (!v && v !== 0) || isNaN(n) ? '' : String(n); } if (ctx === 'uri') { try { return encodeURI(String(v ?? '')).replace(/"/g, '&quot;'); } catch { return ''; } } return _htlText(v); };`,
     `const _htlCtxAttr = (v, ctx) => { if (ctx === 'html' || ctx === 'unsafe') return String(v ?? ''); if (ctx === 'uri') return _htlUri(v); if (ctx === 'number') return _htlNum(v) ?? ''; return _htlAttr(v); };`,
@@ -646,10 +648,7 @@ function buildFunctionBody(
     _class: string;
     _resourceType: string | null;
     _wrapperClass?: string | false;
-  } = {
-    _class: '',
-    _resourceType: null,
-  }
+  } = DEFAULT_FUNCTION_META
 ): string {
   const lines = [`const ${fnName} = (${paramStr}) => {`];
   if (paramStr.includes('_includes')) {

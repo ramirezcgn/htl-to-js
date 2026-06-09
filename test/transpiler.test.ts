@@ -36,9 +36,9 @@ describe('convertExpr', () => {
     expect(convertExpr('${model.id}')).toBe('model?.id');
   });
 
-  it('converts .size to .length', () => {
+  it('converts .size to _htlSize call', () => {
     expect(convertExpr('accordion.items.size > 0')).toBe(
-      'accordion?.items?.length > 0'
+      '_htlSize(accordion?.items) > 0'
     );
   });
 
@@ -92,8 +92,25 @@ describe('convertAttrValue', () => {
 
   it('converts .size in attribute', () => {
     expect(convertAttrValue('${items.size}')).toBe(
-      '${_htlAttr(items?.length)}'
+      '${_htlAttr(_htlSize(items))}'
     );
+  });
+
+  it('} inside string literal does not terminate expression early', () => {
+    // Bug: extractExprs was counting braces without skipping string literals,
+    // so a literal } would close the expression prematurely.
+    // e.g. ${'a}b'} would be parsed as ${'a} with 'b'} as trailing garbage.
+    expect(convertAttrValue("${'a}b'}")).toBe("${_htlAttr('a}b')}");
+    expect(convertAttrValue("${model.flag ? '}' : '{'}")).toBe(
+      "${_htlAttr(model?.flag ? '}' : '{')}"
+    );
+  });
+
+  it('multiple expressions — literal } in one does not shift subsequent boundaries', () => {
+    // Before the fix, ${'x}y'} would be terminated at the } inside the string,
+    // corrupting the expression and shifting ${b} out of place.
+    const result = convertAttrValue("${a} ${'x}y'} ${b}");
+    expect(result).toBe("${_htlAttr(a)} ${_htlAttr('x}y')} ${_htlAttr(b)}");
   });
 });
 
@@ -406,12 +423,33 @@ describe('transpile — data-sly-include', () => {
   });
 });
 
-describe('transpile — .size to .length conversion', () => {
-  it('converts .size to .length in expressions', () => {
+describe('transpile — .size conversion', () => {
+  it('converts list.size to _htlSize(list) in expressions', () => {
     const src = `<div data-sly-test="\${items.size > 0}">has items</div>`;
     const out = transpile(src, { filename: 'test.html' });
-    expect(out).not.toContain('.size');
-    expect(out).toContain('.length');
+    // The template function body should use _htlSize(), not a raw .size access
+    const fnBody = out.slice(out.lastIndexOf('const create'));
+    expect(fnBody).not.toContain('.size');
+    expect(out).toContain('_htlSize(items)');
+  });
+
+  it('model.size property is preserved at runtime', () => {
+    const src = `<sly data-sly-test.isL="\${model.size == 'large'}" /><span data-sly-test="\${isL}">big</span>`;
+    const code = transpile(src, { filename: 'test.html' });
+    const mod: any = {};
+    new Function('module', code)(mod);
+    const fn = Object.values(mod.exports)[0] as Function;
+    expect(String(fn({ model: { size: 'large' } }))).toContain('big');
+    expect(String(fn({ model: { size: 'small' } }))).not.toContain('big');
+  });
+
+  it('array.size returns count at runtime', () => {
+    const src = `<span>\${items.size}</span>`;
+    const code = transpile(src, { filename: 'test.html' });
+    const mod: any = {};
+    new Function('module', code)(mod);
+    const fn = Object.values(mod.exports)[0] as Function;
+    expect(String(fn({ items: ['a', 'b', 'c'] }))).toContain('3');
   });
 });
 
@@ -864,16 +902,16 @@ describe('transpile — data-sly-test.var + data-sly-repeat on same element', ()
 
 describe('convertExpr — @join', () => {
   it('handles @join with single-quoted separator', () => {
-    expect(convertExpr("tags @ join=', '")).toBe("(tags).join(', ')");
+    expect(convertExpr("tags @ join=', '")).toBe("(tags ?? []).join(', ')");
   });
 
   it('handles @join with double-quoted separator', () => {
-    expect(convertExpr('tags @ join=", "')).toBe("(tags).join(', ')");
+    expect(convertExpr('tags @ join=", "')).toBe("(tags ?? []).join(', ')");
   });
 
   it('handles @join with other options', () => {
     expect(convertExpr('tags @ join=", ", context=\'html\'')).toBe(
-      "(tags).join(', ')"
+      "(tags ?? []).join(', ')"
     );
   });
 });
@@ -1395,6 +1433,39 @@ describe('transpile — variable casing preservation', () => {
     expect(html).toContain('alpha (1)');
     expect(html).toContain('beta (2)');
   });
+
+  it('plain text content matching a camelCase var name is NOT lowercased', () => {
+    // Bug: the global replaceAll was replacing the var name in plain text content too.
+    // data-sly-set.myCard declares 'myCard'; the text "myCard info" must remain unchanged.
+    const src = `<div data-sly-set.myCard="\${model.card}"><p>\${myCard.title}</p><span>myCard info</span></div>`;
+    const code = transpile(src, { filename: 'test.html' });
+    const mod: any = {};
+    new Function('module', code)(mod);
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
+    const html = fn({ model: { card: { title: 'Hello' } } });
+    expect(html).toContain('Hello');
+    // The literal text must not have been lowercased to "mycard info"
+    expect(html).toContain('myCard info');
+    expect(html).not.toContain('mycard info');
+  });
+
+  it('HTML comment content matching a camelCase var name is NOT lowercased', () => {
+    const src = `<div data-sly-use.myModel="com.example.Model"><!-- myModel ref -->\${myModel.title}</div>`;
+    const code = transpile(src, { filename: 'test.html' });
+    // The comment text should be untouched
+    expect(code).toContain('<!-- myModel ref -->');
+  });
+
+  it('camelCase var reference inside expression is still normalized', () => {
+    // Sanity check: usages inside ${...} must still be normalized and restored
+    const src = `<div data-sly-set.myItem="\${'x'}"><span data-sly-test="\${myItem != null}">\${myItem}</span></div>`;
+    const code = transpile(src, { filename: 'test.html' });
+    expect(code).toContain('myItem');
+    const mod: any = {};
+    new Function('module', code)(mod);
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
+    expect(fn()).toContain('x');
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -1456,6 +1527,25 @@ describe('transpile — free variable detection', () => {
     const code = transpile(src, { filename: 'test.html' });
     expect(code).not.toContain('Math =');
     expect(code).not.toContain('JSON =');
+  });
+
+  it('escaped quote inside string literal does not produce spurious free-var refs', () => {
+    // Bug: 'it\'s here' was stripped to " s here'" leaving s and here as false positives.
+    // The generated function must NOT have `s` or `here` as parameters.
+    const src = `<div data-sly-test="\${model.flag == 'it\\'s here'}">ok</div>`;
+    const code = transpile(src, { filename: 'test.html' });
+    // s and here must not appear as destructured params (only model and AEM implicits)
+    const paramLine = code.match(/const \w+ = \(([^)]+)\)/)?.[1] ?? '';
+    expect(paramLine).not.toMatch(/\bs\b\s*=/);
+    expect(paramLine).not.toMatch(/\bhere\b\s*=/);
+  });
+
+  it('escaped double-quote inside string literal does not produce spurious refs', () => {
+    const src = `<div data-sly-test="\${model.val == &quot;say \\"hi\\"&quot;}">ok</div>`;
+    const code = transpile(src, { filename: 'test.html' });
+    const paramLine = code.match(/const \w+ = \(([^)]+)\)/)?.[1] ?? '';
+    expect(paramLine).not.toMatch(/\bhi\b\s*=/);
+    expect(paramLine).not.toMatch(/\bsay\b\s*=/);
   });
 });
 
@@ -4681,6 +4771,27 @@ describe('parseI18nXml — JCR format', () => {
     expect(parseI18nXml(xml)).toEqual({ 'Hello & World': 'Hola & Mundo' });
   });
 
+  it('decodes decimal numeric character references (&#32;)', () => {
+    const xml = `<jcr:root>
+  <n sling:key="non&#32;breaking" sling:message="val&#169;right"/>
+</jcr:root>`;
+    expect(parseI18nXml(xml)).toEqual({ 'non breaking': 'val©right' });
+  });
+
+  it('decodes hex numeric character references (&#xA0; &#x20;)', () => {
+    const xml = `<jcr:root>
+  <n sling:key="no&#xA0;break" sling:message="caf&#xe9;"/>
+</jcr:root>`;
+    expect(parseI18nXml(xml)).toEqual({ 'no\u00A0break': 'café' });
+  });
+
+  it('decodes mixed named and numeric entities in the same string', () => {
+    const xml = `<jcr:root>
+  <n sling:key="a &amp; b" sling:message="&lt;&#x2F;&gt;"/>
+</jcr:root>`;
+    expect(parseI18nXml(xml)).toEqual({ 'a & b': '</>' });
+  });
+
   it('strips {String} type prefix from sling:message', () => {
     const xml = `<jcr:root>
   <n sling:key="Title" sling:message="{String}Título"/>
@@ -4701,6 +4812,34 @@ describe('parseI18nXml — JCR format', () => {
 
   it('returns empty dict for unrecognized format', () => {
     expect(parseI18nXml('<root><item>foo</item></root>')).toEqual({});
+  });
+
+  it('handles multi-line attribute values (not possible with regex)', () => {
+    const xml = `<jcr:root>
+  <n sling:key="line1"
+     sling:message="first line
+second line"/>
+</jcr:root>`;
+    expect(parseI18nXml(xml)).toEqual({ line1: 'first line\nsecond line' });
+  });
+
+  it('ignores XML comments and does not parse them as entries', () => {
+    const xml = `<jcr:root>
+  <!-- sling:key="fake" sling:message="should not appear" -->
+  <n sling:key="real" sling:message="value"/>
+</jcr:root>`;
+    const dict = parseI18nXml(xml);
+    expect(dict).toEqual({ real: 'value' });
+    expect(dict).not.toHaveProperty('fake');
+  });
+
+  it('handles CDATA sections in attribute values gracefully', () => {
+    // CDATA is only valid in text nodes in XML — parsers may pass it through as text.
+    // The key check is that the parser does not throw and returns what it can.
+    const xml = `<jcr:root>
+  <n sling:key="cdata" sling:message="hello world"/>
+</jcr:root>`;
+    expect(parseI18nXml(xml)).toEqual({ cdata: 'hello world' });
   });
 });
 
@@ -5010,6 +5149,20 @@ describe('resolveLocaleChain', () => {
   it('normalises hyphen separators', () => {
     expect(resolveLocaleChain('pt-BR')).toEqual(['en', 'pt', 'pt_BR']);
   });
+
+  it('handles BCP 47 language-script-region (zh-Hant-TW)', () => {
+    // Old impl: replace('-','_') only replaced the first hyphen → 'zh_Hant-TW'
+    // then split('_') gave ['zh', 'Hant-TW'] → chain skipped 'zh_Hant' intermediate.
+    expect(resolveLocaleChain('zh-Hant-TW')).toEqual(['en', 'zh', 'zh_Hant', 'zh_Hant_TW']);
+  });
+
+  it('handles BCP 47 with underscores already (zh_Hant_TW)', () => {
+    expect(resolveLocaleChain('zh_Hant_TW')).toEqual(['en', 'zh', 'zh_Hant', 'zh_Hant_TW']);
+  });
+
+  it('does not duplicate "en" when locale starts with en subtag', () => {
+    expect(resolveLocaleChain('en_US')).toEqual(['en', 'en_US']);
+  });
 });
 
 describe('transpile — i18nFallbackDicts option', () => {
@@ -5082,7 +5235,7 @@ describe('convertExpr — i18n pluralization', () => {
 
   it('applies optional chaining to count expression', () => {
     expect(convertExpr("'1 item' @ i18n, count=items.size")).toBe(
-      "_htlI18nPlural('1 item', items?.length, _i18n)"
+      "_htlI18nPlural('1 item', _htlSize(items), _i18n)"
     );
   });
 
@@ -5318,7 +5471,7 @@ describe('convertExpr — @ inside string literals', () => {
   });
 
   it('preserves @ in a join separator string', () => {
-    expect(convertExpr("list @ join='@'")).toBe("(list).join('@')");
+    expect(convertExpr("list @ join='@'")).toBe("(list ?? []).join('@')");
   });
 });
 
@@ -5775,4 +5928,85 @@ describe('transpile — dynamic @ context expression in attributes', () => {
     expect(code).toContain('_htlCtxAttr(');
   });
 });
+
+// ---------------------------------------------------------------------------
+// Webpack loader — error recovery
+// ---------------------------------------------------------------------------
+
+describe('htl loader — error recovery', () => {
+  // Build a minimal fake webpack loader context.
+  function makeCtx(resourcePath: string, options: Record<string, any> = {}) {
+    const errors: Error[] = [];
+    let callbackResult: { code: string; map?: any } | null = null;
+    return {
+      resourcePath,
+      cacheable: () => {},
+      getOptions: () => options,
+      addDependency: () => {},
+      emitWarning: () => {},
+      emitError: (e: Error) => errors.push(e),
+      callback(_err: null, code: string, map?: any) {
+        callbackResult = { code, map };
+      },
+      get errors() { return errors; },
+      get result() { return callbackResult; },
+    };
+  }
+
+  function runLoader(ctx: ReturnType<typeof makeCtx>, source: string) {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const loader = require('../src/loader');
+    const fn = loader.default ?? loader;
+    fn.call(ctx, source);
+  }
+
+  it('on success: callback receives generated code and a source map', () => {
+    const ctx = makeCtx('/apps/mysite/card/card.html');
+    runLoader(ctx, '<div>${model.title}</div>');
+    expect(ctx.errors).toHaveLength(0);
+    expect(ctx.result?.code).toContain('createCard');
+    expect(ctx.result?.map).toMatchObject({
+      version: 3,
+      sources: ['/apps/mysite/card/card.html'],
+    });
+  });
+
+  it('on transpile error: emits descriptive error and fallback code throws', () => {
+    const ctx = makeCtx('/apps/mysite/broken/broken.html');
+    // Pass null to force a TypeError inside transpile (htlSource.replaceAll on null).
+    runLoader(ctx, null as any);
+
+    // Error must be reported to webpack with the file path
+    expect(ctx.errors).toHaveLength(1);
+    expect(ctx.errors[0].message).toContain('broken.html');
+
+    // Fallback module must contain a throw statement referencing the file
+    const fallback = ctx.result?.code ?? '';
+    expect(fallback).toContain('throw new Error');
+    expect(fallback).toContain('broken.html');
+
+    // Evaluating the fallback must throw — not silently succeed
+    expect(() => {
+      new Function('module', fallback)({ exports: {} });
+    }).toThrow(/broken\.html/);
+  });
+
+  it('on transpile error: Proxy re-throws on any property access', () => {
+    const ctx = makeCtx('/apps/mysite/broken/broken.html');
+    runLoader(ctx, null as any);
+
+    // Extract only the Proxy assignment line (second statement) so we can
+    // evaluate it without hitting the top-level throw.
+    const fallback = ctx.result?.code ?? '';
+    const proxyLine = fallback
+      .split('\n')
+      .find((l) => l.includes('Proxy'));
+
+    expect(proxyLine).toBeTruthy();
+    const mod: any = { exports: {} };
+    new Function('module', proxyLine!)(mod);
+    expect(() => mod.exports.createBroken).toThrow(/broken\.html/);
+  });
+});
+
 

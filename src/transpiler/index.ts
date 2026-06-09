@@ -3,6 +3,7 @@ import { createContext, walkNodes } from './walker';
 import type { WalkerContext } from './walker';
 import type { SetDecl } from './directives';
 import { parseDirectives } from './directives';
+import { extractExprs } from './expr';
 import fs from 'node:fs';
 import path from 'node:path';
 
@@ -50,6 +51,10 @@ const PARSYS_SLOTS = new Set([
 
 const DEFAULT_FUNCTION_META = { _class: '', _resourceType: null } as const;
 
+const EXPAND_SLY_RE = /<sly\b([^>]*?)\/>/g;
+const SLOT_KEYS_RE =
+  /_incSlot\(_includes,\s*'([^']+)'|_wrapResource\('([^']+)',\s*_includes,/g;
+
 interface TranspileOptions {
   filename?: string;
   omitAttrs?: RegExp[];
@@ -70,6 +75,7 @@ interface TranspileOptions {
     string | { expression?: string; htl?: string }
   >;
   format?: 'cjs' | 'esm';
+  sourceURL?: boolean;
 }
 
 interface ParamDecl {
@@ -112,12 +118,10 @@ export function transpile(
     resourceDecorations,
     fileOverrides = {},
     format = 'cjs',
+    sourceURL: emitSourceURL = true,
   }: TranspileOptions = {}
 ): string {
-  const expandedSource = htlSource.replaceAll(
-    /<sly\b([^>]*?)\/>/g,
-    '<sly$1></sly>'
-  );
+  const expandedSource = htlSource.replaceAll(EXPAND_SLY_RE, '<sly$1></sly>');
   const { normalized: normalizedSource, restoreMap } =
     normalizeSetVarCasing(expandedSource);
   const document = parseDocument(normalizedSource);
@@ -185,6 +189,7 @@ export function transpile(
     `const _htlDynAttrCtx = (name, v, ctx) => { if (ctx === 'html' || ctx === 'unsafe') { if (v == null || v === false) return ''; if (v === true) return ' ' + name; return ' ' + name + '="' + String(v) + '"'; } return _htlDynAttr(name, ctx === 'uri' ? _htlUri(v) : ctx === 'number' ? _htlNum(v) : v); };`,
     `const _htlUri = (v) => { if (v == null) return ''; try { return encodeURI(String(v)).replace(/"/g, '&quot;'); } catch { return ''; } };`,
     `const _htlIn = (l, r) => { if (typeof r === 'string') return r.includes(String(l)); if (Array.isArray(r)) return r.includes(l); return r != null && (l in r); };`,
+    `const _htlSize = (v) => v == null ? 0 : (Array.isArray(v) || typeof v === 'string') ? v.length : v?.size !== undefined ? v.size : v?.length ?? 0;`,
     `const _htlNum = (v) => { if (v == null || typeof v === 'boolean' || Array.isArray(v)) return null; const n = Number(v); return isNaN(n) ? null : String(n); };`,
     String.raw`const _htlJoinPaths = (base, prepend, append) => { let p = String(base ?? ''); if (prepend) { const s = String(prepend); p = s.replace(/\/$/, '') + '/' + p.replace(/^\//, ''); } if (append) { const s = String(append); p = p.replace(/\/$/, '') + '/' + s.replace(/^\//, ''); } return p; };`,
     `const _htlSlice = (arr, begin, end, step) => { const a = arr || []; const b = begin != null ? Number(begin) : 0; const e = end != null ? Number(end) : a.length - 1; const s = step != null ? Math.max(1, Number(step)) : 1; return a.filter((_, i) => i >= b && i <= e && (i - b) % s === 0); };`,
@@ -263,15 +268,16 @@ export function transpile(
   }
 
   const slotsSet = new Set<string>();
-  for (const m of codeBody.matchAll(
-    /_incSlot\(_includes,\s*'([^']+)'|_wrapResource\('([^']+)',\s*_includes,/g
-  )) {
+  for (const m of codeBody.matchAll(SLOT_KEYS_RE)) {
     slotsSet.add(m[1] ?? m[2]);
   }
   const slotsLine = slotsSet.size
     ? format === 'esm'
       ? `\nexport const __slots__ = ${JSON.stringify([...slotsSet])};\n`
       : `\nconst __slots__ = ${JSON.stringify([...slotsSet])};\nObject.assign(module.exports, { __slots__ });\nfor (const _fn of Object.values(module.exports)) { if (typeof _fn === 'function') _fn.__slots__ = __slots__; }\n`
+    : '';
+  const sourceURLLine = emitSourceURL
+    ? `\n//# sourceURL=${path.resolve(filename).replaceAll('\\', '/')}\n`
     : '';
   return (
     banner +
@@ -280,7 +286,8 @@ export function transpile(
     resourceWrapperDecl +
     resourceDecorationDecl +
     codeBody +
-    slotsLine
+    slotsLine +
+    sourceURLLine
   );
 }
 
@@ -295,10 +302,7 @@ function transpileInlineHtl(
   modelTransforms: Record<string, Record<string, ModelTransformValue>>,
   fileOverrides: Record<string, string>
 ): string {
-  const expandedSource = htlSource.replaceAll(
-    /<sly\b([^>]*?)\/>/g,
-    '<sly$1></sly>'
-  );
+  const expandedSource = htlSource.replaceAll(EXPAND_SLY_RE, '<sly$1></sly>');
   const { normalized, restoreMap } = normalizeSetVarCasing(expandedSource);
   const document = parseDocument(normalized);
   const originalTemplateNames = extractOriginalTemplateNames(normalized);
@@ -625,9 +629,7 @@ function buildJsUseEsm(
 
 function findContentSlot(body: string): string | null {
   const slots: string[] = [];
-  for (const m of body.matchAll(
-    /_incSlot\(_includes,\s*'([^']+)'|_wrapResource\('([^']+)',\s*_includes,/g
-  )) {
+  for (const m of body.matchAll(SLOT_KEYS_RE)) {
     slots.push(m[1] ?? m[2]);
   }
   const found = slots.find((s) => PARSYS_SLOTS.has(s)) ?? slots[0] ?? null;
@@ -735,9 +737,15 @@ function collectFiles(rootDir: string, allowedExts: Set<string>): string[] {
   return results;
 }
 
+const _dynamicUsePathCache = new Map<string, Record<string, string>>();
+
 function buildDynamicUsePathMap(sourceDir: string): Record<string, string> {
-  const map: Record<string, string> = {};
   const rootDir = findNearestJcrRoot(sourceDir) ?? path.resolve(sourceDir);
+
+  const cached = _dynamicUsePathCache.get(rootDir);
+  if (cached) return cached;
+
+  const map: Record<string, string> = {};
   const sourceRoot = path.resolve(sourceDir);
   const files = collectFiles(rootDir, new Set(['.html', '.js', '.json']));
 
@@ -759,6 +767,7 @@ function buildDynamicUsePathMap(sourceDir: string): Record<string, string> {
     }
   }
 
+  _dynamicUsePathCache.set(rootDir, map);
   return map;
 }
 
@@ -1263,10 +1272,16 @@ function normalizeSetVarCasing(source: string): {
       new RegExp(String.raw`((?:${directivesPattern})\.)${name}\b`, 'g'),
       `$1${lower}`
     );
-    result = result.replaceAll(
-      new RegExp(String.raw`(?<!\.)\b${name}\b`, 'g'),
-      lower
-    );
+    const varRe = new RegExp(String.raw`(?<!\.)\b${name}\b`, 'g');
+    let rebuilt = '';
+    let lastEnd = 0;
+    for (const { index, expr, end } of extractExprs(result)) {
+      rebuilt += result.slice(lastEnd, index + 2); // literal before + '${'
+      rebuilt += expr.replace(varRe, lower);
+      rebuilt += '}';
+      lastEnd = end;
+    }
+    result = rebuilt + result.slice(lastEnd);
   }
   return { normalized: result, restoreMap };
 }

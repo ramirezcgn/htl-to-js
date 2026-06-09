@@ -1,3 +1,5 @@
+import { parseDocument } from 'htmlparser2';
+
 /**
  * Parses an AEM JCR i18n XML file into a plain string dictionary.
  *
@@ -7,28 +9,52 @@
  *   2. Simple entry-based (fallback):
  *        <entry key="...">value</entry>
  *
- * XML entities (&amp; &lt; &gt; &quot; &apos;) are decoded in both keys and values.
+ * Uses htmlparser2 in XML mode — handles CDATA sections, XML comments,
+ * multi-line attributes, and namespaced attributes correctly.
+ * XML entities are decoded automatically by the parser for attribute values.
  * The optional {Type} prefix on sling:message values (e.g. "{String}Hello") is stripped.
  */
 export function parseI18nXml(xmlContent: string): Record<string, string> {
+  const doc = parseDocument(xmlContent, { xmlMode: true });
   const dict: Record<string, string> = {};
 
-  // Format 1: JCR self-closing MessageEntry nodes
-  for (const m of xmlContent.matchAll(/<[\w:]+(\s[\s\S]*?)\/>/g)) {
-    const attrs = m[1];
-    const keyMatch = /\bsling:key="([^"]*)"/.exec(attrs);
-    const msgMatch = /\bsling:message="([^"]*)"/.exec(attrs);
-    if (keyMatch && msgMatch) {
-      const rawMsg = msgMatch[1].replace(/^\{[^}]+\}/, ''); // strip {String} prefix
-      dict[decodeXmlEntities(keyMatch[1])] = decodeXmlEntities(rawMsg);
+  function walk(nodes: any[]): void {
+    for (const node of nodes) {
+      if (node.type !== 'tag' && node.type !== 'script') {
+        continue;
+      }
+      const key: string | undefined = node.attribs?.['sling:key'];
+      const msg: string | undefined = node.attribs?.['sling:message'];
+      if (key != null && msg != null) {
+        dict[key] = msg.replace(/^\{[^}]+\}/, ''); // strip {String} prefix
+      }
+      if (node.children?.length) {
+        walk(node.children);
+      }
     }
   }
+  walk(doc.children ?? []);
 
-  // Format 2: <entry key="...">value</entry> (fallback when format 1 yields nothing)
   if (Object.keys(dict).length === 0) {
-    for (const m of xmlContent.matchAll(/<entry\s+key="([^"]*)">([\s\S]*?)<\/entry>/g)) {
-      dict[decodeXmlEntities(m[1])] = decodeXmlEntities(m[2].trim());
+    function walkEntry(nodes: any[]): void {
+      for (const node of nodes) {
+        if (
+          (node.type === 'tag' || node.type === 'script') &&
+          node.name === 'entry'
+        ) {
+          const entryKey: string | undefined = node.attribs?.key;
+          if (entryKey != null) {
+            const text = (node.children ?? [])
+              .filter((c: any) => c.type === 'text')
+              .map((c: any) => c.data as string)
+              .join('');
+            dict[entryKey] = decodeXmlEntities(text.trim());
+          }
+        }
+        if (node.children?.length) walkEntry(node.children);
+      }
     }
+    walkEntry(doc.children ?? []);
   }
 
   return dict;
@@ -40,7 +66,9 @@ function decodeXmlEntities(s: string): string {
     .replaceAll('&lt;', '<')
     .replaceAll('&gt;', '>')
     .replaceAll('&quot;', '"')
-    .replaceAll('&apos;', "'");
+    .replaceAll('&apos;', "'")
+    .replace(/&#x([0-9a-fA-F]+);/g, (_, hex) => String.fromCodePoint(Number.parseInt(hex, 16)))
+    .replace(/&#(\d+);/g, (_, dec) => String.fromCodePoint(Number.parseInt(dec, 10)));
 }
 
 /**
@@ -57,16 +85,21 @@ export function mergeI18nDicts(...dicts: Record<string, string>[]): Record<strin
 /**
  * Resolves a locale code into an ascending-priority chain for use with mergeI18nDicts.
  * 'en' is always the base. The primary locale is last (highest priority).
+ * Supports simple, region, and extended BCP 47 subtags (language-script-region).
  *
- *   resolveLocaleChain('es_MX') → ['en', 'es', 'es_MX']
- *   resolveLocaleChain('de')    → ['en', 'de']
- *   resolveLocaleChain('en')    → ['en']
+ *   resolveLocaleChain('es_MX')       → ['en', 'es', 'es_MX']
+ *   resolveLocaleChain('de')          → ['en', 'de']
+ *   resolveLocaleChain('en')          → ['en']
+ *   resolveLocaleChain('zh-Hant-TW')  → ['en', 'zh', 'zh_Hant', 'zh_Hant_TW']
  */
 export function resolveLocaleChain(locale: string): string[] {
-  const normalised = locale.replace('-', '_');
-  const parts = normalised.split('_');
+  // Normalise all hyphens to underscores (BCP 47 uses hyphens, AEM uses underscores).
+  const parts = locale.replaceAll('-', '_').split('_');
   const chain: string[] = ['en'];
-  if (parts[0] !== 'en') chain.push(parts[0]);
-  if (parts.length > 1) chain.push(normalised);
+  let accumulated = '';
+  for (const part of parts) {
+    accumulated = accumulated ? `${accumulated}_${part}` : part;
+    if (accumulated !== 'en') chain.push(accumulated);
+  }
   return [...new Set(chain)];
 }

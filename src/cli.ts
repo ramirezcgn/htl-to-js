@@ -3,6 +3,7 @@
 import { transpile, generateDts } from './transpiler/index';
 import { parseI18nXml, mergeI18nDicts } from './parseI18nXml';
 import { glob } from 'glob';
+import { minimatch } from 'minimatch';
 import fs from 'node:fs';
 import path from 'node:path';
 
@@ -91,12 +92,68 @@ async function main(): Promise<void> {
   for (const file of files) processFile(file);
 
   if (watchMode) {
-    console.log(`\nWatching ${files.length} file(s) for changes…\n`);
-    for (const file of files) {
-      fs.watch(file, () => {
-        console.log(`↻  ${path.relative(process.cwd(), file)} changed`);
-        processFile(file);
+    const knownFiles = new Set(files);
+    const baseDir = path.resolve(
+      pattern.replace(/[*?{[].*$/, '').replace(/[\\/]$/, '') || '.'
+    );
+
+    const normalizedPattern = pattern.replaceAll('\\', '/');
+    const debounceTimers = new Map<string, ReturnType<typeof setTimeout>>();
+    const DEBOUNCE_MS = 80;
+
+    function scheduleProcess(fullPath: string, relPath: string, isNew: boolean): void {
+      const existing = debounceTimers.get(fullPath);
+      if (existing) clearTimeout(existing);
+      debounceTimers.set(
+        fullPath,
+        setTimeout(() => {
+          debounceTimers.delete(fullPath);
+          console.log(isNew ? `+  ${relPath} (new file)` : `↻  ${relPath} changed`);
+          processFile(fullPath);
+        }, DEBOUNCE_MS),
+      );
+    }
+
+    let usedRecursiveWatch = false;
+
+    try {
+      const watcher = fs.watch(baseDir, { recursive: true }, (event, filename) => {
+        if (!filename?.endsWith('.html')) return;
+        const fullPath = path.join(baseDir, filename);
+        const relPath = path.relative(process.cwd(), fullPath);
+
+        if (!fs.existsSync(fullPath)) return; // deletion — ignore
+
+        const matchesPattern = minimatch(
+          fullPath.replaceAll('\\', '/'),
+          path.isAbsolute(normalizedPattern)
+            ? normalizedPattern
+            : path.resolve(normalizedPattern).replaceAll('\\', '/'),
+          { dot: true }
+        ) || minimatch(relPath.replaceAll('\\', '/'), normalizedPattern, { dot: true });
+
+        if (!matchesPattern) return;
+
+        const isNew = !knownFiles.has(fullPath);
+        if (isNew) knownFiles.add(fullPath);
+        scheduleProcess(fullPath, relPath, isNew);
       });
+
+      watcher.on('error', (err) => console.error(`Watch error: ${err.message}`));
+      usedRecursiveWatch = true;
+      const displayBase = path.relative(process.cwd(), baseDir) || '.';
+      console.log(`\nWatching ${displayBase}/ for changes (including new files)…\n`);
+    } catch {
+      // recursive watch not supported — fall back to per-file watching.
+    }
+
+    if (!usedRecursiveWatch) {
+      console.log(`\nWatching ${files.length} file(s) for changes…\n`);
+      for (const file of files) {
+        fs.watch(file, () => {
+          scheduleProcess(file, path.relative(process.cwd(), file), false);
+        });
+      }
     }
   }
 }

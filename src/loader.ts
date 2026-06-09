@@ -19,7 +19,7 @@ import fs from 'node:fs';
  *
  *   import { createAccordion } from '../path/to/accordion.html';
  */
-function htlLoader(this: any, source: string): string {
+function htlLoader(this: any, source: string): void {
   this.cacheable(true);
 
   const { i18nPath, i18nFallbackPaths, ...transpileOptions } = this.getOptions ? this.getOptions() : {} as any;
@@ -50,14 +50,35 @@ function htlLoader(this: any, source: string): string {
     if (!i18nFallbackDicts.length) i18nFallbackDicts = undefined;
   }
 
+  let code: string;
   try {
-    return transpile(source, { filename: this.resourcePath, ...transpileOptions, i18nDict, i18nFallbackDicts });
+    code = transpile(source, {
+      filename: this.resourcePath,
+      ...transpileOptions,
+      i18nDict,
+      i18nFallbackDicts,
+      sourceURL: false,
+    });
   } catch (err: any) {
-    this.emitError(
-      new Error(`[htl-to-js] ${this.resourcePath}: ${err.message}`)
+    const message = `[htl-to-js] ${this.resourcePath}: ${err.message}`;
+    this.emitError(new Error(message));
+    const escapedMsg = JSON.stringify(message);
+    this.callback(
+      null,
+      `throw new Error(${escapedMsg});\nmodule.exports = new Proxy({}, { get(_,p) { throw new Error(${escapedMsg}); } });`,
     );
-    return 'module.exports = {};';
+    return;
   }
+
+  const sourceMap = {
+    version: 3 as const,
+    sources: [this.resourcePath],
+    sourcesContent: [source],
+    mappings: 'AAAA',
+    names: [] as string[],
+  };
+
+  this.callback(null, code, sourceMap);
 }
 
 export = htlLoader;

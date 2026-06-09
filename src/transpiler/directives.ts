@@ -9,6 +9,9 @@ import {
   extractDynamicContext,
 } from './expr';
 
+const HTL_VALUE_RE =
+  /(\w+)\s*=\s*((?:'(?:\\.|[^'\\])*'|"(?:\\.|[^"\\])*"|\$\{(?:[^{}]|\{[^{}]*\})*\}|\[[^\]]*\]|[^,}])+)/g;
+
 export interface SetDecl {
   name: string;
   expr: string;
@@ -139,9 +142,7 @@ function parseUseDefault(val: string): string | null {
 
 function parseHtlOptions(value: string): Record<string, string> {
   const options: Record<string, string> = {};
-  const valueRe =
-    /(\w+)\s*=\s*((?:'(?:\\.|[^'\\])*'|"(?:\\.|[^"\\])*"|\$\{(?:[^{}]|\{[^{}]*\})*\}|\[[^\]]*\]|[^,}])+)/g;
-  for (const match of value.matchAll(valueRe)) {
+  for (const match of value.matchAll(HTL_VALUE_RE)) {
     options[match[1].trim()] = convertExpr(match[2].trim());
   }
   return options;
@@ -539,9 +540,7 @@ function parseCallExpr(raw: string): CallDescriptor {
   const params: Record<string, string> = {};
   if (atIdx !== -1) {
     const optStr = inner.slice(atIdx + 1);
-    const valueRe =
-      /(\w+)\s*=\s*((?:'(?:\\.|[^'\\])*'|"(?:\\.|[^"\\])*"|\$\{(?:[^{}]|\{[^{}]*\})*\}|\[[^\]]*\]|[^,}])+)/g; // NOSONAR -- inherent complexity of HTL value parsing
-    for (const m of optStr.matchAll(valueRe)) {
+    for (const m of optStr.matchAll(HTL_VALUE_RE)) {
       params[m[1].trim()] = convertExpr(m[2].trim());
     }
   }

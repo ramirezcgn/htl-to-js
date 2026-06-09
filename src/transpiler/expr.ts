@@ -9,13 +9,25 @@ function splitAtAtSign(expr: string): [string, string | null] {
   for (let i = 0; i < expr.length; i++) {
     const c = expr[i];
     if (inStr) {
-      if (c === '\\') { i++; continue; }
+      if (c === '\\') {
+        i++;
+        continue;
+      }
       if (c === inStr) inStr = null;
       continue;
     }
-    if (c === "'" || c === '"') { inStr = c; continue; }
-    if (c === '(' || c === '[') { depth++; continue; }
-    if (c === ')' || c === ']') { depth--; continue; }
+    if (c === "'" || c === '"') {
+      inStr = c;
+      continue;
+    }
+    if (c === '(' || c === '[') {
+      depth++;
+      continue;
+    }
+    if (c === ')' || c === ']') {
+      depth--;
+      continue;
+    }
     if (c === '@' && depth === 0) {
       return [expr.slice(0, i).trim(), expr.slice(i + 1).trim()];
     }
@@ -47,12 +59,17 @@ function transformValue(expr: string): string {
   });
 
   result = result
-    .replace(/\.size\b/g, '.length')
+    .replace(
+      /([\w$](?:[\w$.?]|__ARR\d+__|__STR\d+__)*)\.size\b/g,
+      (_, lhs) => `_htlSize(${lhs})`
+    )
     .replace(/(\w+)\.jcr:(\w+)/g, "$1?.['jcr:$2']")
     .trim();
 
   // Restore arrays before optional-chaining so a[i] becomes a?.[i].
-  arrays.forEach((arr, i) => { result = result.replace(`__ARR${i}__`, arr); });
+  arrays.forEach((arr, i) => {
+    result = result.replace(`__ARR${i}__`, arr);
+  });
 
   result = result
     .replace(/(\w|\])(?<!\?)\[/g, '$1?.[')
@@ -66,7 +83,9 @@ function transformValue(expr: string): string {
     .replace(/(?<![?.])\b(class|for)\b/g, '_$1');
 
   // Restore string literals last so their content is never touched.
-  strings.forEach((str, i) => { result = result.replace(`__STR${i}__`, str); });
+  strings.forEach((str, i) => {
+    result = result.replace(`__STR${i}__`, str);
+  });
 
   return result;
 }
@@ -104,14 +123,10 @@ export function convertExpr(raw: string): string {
       : /\bcount\s*=\s*((?:'[^']*'|"[^"]*"|[^,\s'")}]+))/.exec(optStr)?.[1];
 
   const joinMatch =
-    optStr == null
-      ? null
-      : /\bjoin\s*=\s*(?:'([^']*)'|"([^"]*)")/.exec(optStr);
+    optStr == null ? null : /\bjoin\s*=\s*(?:'([^']*)'|"([^"]*)")/.exec(optStr);
 
   const formatArgs =
-    optStr == null
-      ? null
-      : /\bformat\s*=\s*\[([^\]]*)\]/.exec(optStr)?.[1];
+    optStr == null ? null : /\bformat\s*=\s*\[([^\]]*)\]/.exec(optStr)?.[1];
 
   const urlencodeMatch =
     optStr != null && /\bcontext\s*=\s*['"]urlencode['"]/i.test(optStr);
@@ -146,7 +161,7 @@ export function convertExpr(raw: string): string {
   // --- Apply @join ---
   if (joinMatch) {
     const sep = joinMatch[1] ?? joinMatch[2];
-    value = `(${value}).join('${sep}')`;
+    value = `(${value} ?? []).join('${sep}')`;
   }
 
   // --- Apply @i18n / @count (pluralisation) ---
@@ -183,7 +198,8 @@ interface ExprMatch {
 
 /**
  * Extracts all ${...} HTL expressions from a string, correctly handling
- * any depth of nested braces (e.g. '{{url}}' or '{0}/{1}' placeholders).
+ * any depth of nested braces and string literals inside expressions
+ * (e.g. `${'hello}world'}` or `${'a' == 'b' ? '}' : '{'}`).
  */
 export function extractExprs(str: string): ExprMatch[] {
   const results: ExprMatch[] = [];
@@ -193,9 +209,26 @@ export function extractExprs(str: string): ExprMatch[] {
     if (start === -1) break;
     let depth = 0;
     let j = start;
+    let inStr: string | null = null;
     for (; j < str.length; j++) {
-      if (str[j] === '{') depth++;
-      else if (str[j] === '}') {
+      const c = str[j];
+      if (inStr) {
+        if (c === '\\') {
+          j++;
+          continue;
+        }
+        if (c === inStr) inStr = null;
+        continue;
+      }
+      if (c === "'" || c === '"') {
+        inStr = c;
+        continue;
+      }
+      if (c === '{') {
+        depth++;
+        continue;
+      }
+      if (c === '}') {
         depth--;
         if (depth === 0) break;
       }

@@ -37,6 +37,9 @@ const VOID_ELEMENTS = new Set([
   'wbr',
 ]);
 
+const buildExtraParams = (paramsStr: string) =>
+  paramsStr ? `${paramsStr}, _includes` : '_includes';
+
 export interface WalkerContext {
   uses: Record<string, string>;
   useDefaults: Record<string, string>;
@@ -79,9 +82,7 @@ export function createContext(
  */
 function addRootRefs(expr: string | null | undefined, refs: Set<string>): void {
   if (!expr) return;
-  const stripped = String(expr)
-    .replaceAll(/'[^']*'/g, '')
-    .replaceAll(/"[^"]*"/g, '');
+  const stripped = String(expr).replace(/(['"])(?:\\.|[^\\])*?\1/g, '');
   for (const m of stripped.matchAll(
     /(?<![?.])\b([a-zA-Z_$][a-zA-Z0-9_$]*)\b/g
   )) {
@@ -243,7 +244,7 @@ function processElement(node: any, ctx: WalkerContext): string {
     if (dotIdx === -1) {
       const localFn = ctx.localTemplates[fn];
       if (localFn) {
-        const extraParams = paramsStr ? `${paramsStr}, _includes` : '_includes';
+        const extraParams = buildExtraParams(paramsStr);
         callContent = `\${${localFn}?.({ ..._rest, ${extraParams} }) ?? ''}`;
       }
     } else {
@@ -253,7 +254,7 @@ function processElement(node: any, ctx: WalkerContext): string {
       if (filePath && !ctx.uses[callObjName]) {
         const jsFnName =
           'create' + methodName.charAt(0).toUpperCase() + methodName.slice(1);
-        const extraParams = paramsStr ? `${paramsStr}, _includes` : '_includes';
+        const extraParams = buildExtraParams(paramsStr);
         callContent = `\${require('${filePath}').${jsFnName}?.({ ..._rest, ${extraParams} }) ?? ''}`;
       } else {
         const dynamicFilePath =
@@ -261,9 +262,7 @@ function processElement(node: any, ctx: WalkerContext): string {
         if (dynamicFilePath && !ctx.uses[callObjName]) {
           const jsFnName =
             'create' + methodName.charAt(0).toUpperCase() + methodName.slice(1);
-          const extraParams = paramsStr
-            ? `${paramsStr}, _includes`
-            : '_includes';
+          const extraParams = buildExtraParams(paramsStr);
           const requirePath = dynamicFilePath.startsWith('`')
             ? dynamicFilePath
             : `(() => { const _usePath = String(${dynamicFilePath} ?? ''); return _usePath.startsWith('/') || _usePath.startsWith('.') ? _usePath : './' + _usePath; })()`;
@@ -271,9 +270,7 @@ function processElement(node: any, ctx: WalkerContext): string {
         } else {
           const localFn = ctx.localTemplates[methodName];
           if (localFn) {
-            const extraParams = paramsStr
-              ? `${paramsStr}, _includes`
-              : '_includes';
+            const extraParams = buildExtraParams(paramsStr);
             callContent = `\${${localFn}?.({ ..._rest, ${extraParams} }) ?? ''}`;
           }
         }
@@ -281,12 +278,12 @@ function processElement(node: any, ctx: WalkerContext): string {
     }
 
     if (!callContent && !isStaticCallTarget) {
-      const extraParams = paramsStr ? `${paramsStr}, _includes` : '_includes';
+      const extraParams = buildExtraParams(paramsStr);
       callContent = `\${${convertExpr(fn)}?.({ ..._rest, ${extraParams} }) ?? ''}`;
     }
 
     if (!callContent) {
-      const extraParams = paramsStr ? `${paramsStr}, _includes` : '_includes';
+      const extraParams = buildExtraParams(paramsStr);
       callContent = `\${${fn}?.({ ..._rest, ${extraParams} }) ?? ''}`;
     }
 
@@ -313,7 +310,8 @@ function processElement(node: any, ctx: WalkerContext): string {
     const children = dir.resource
       ? (() => {
           const resourceParams = formatCallParams(dir.resource.params);
-          const slotParamsArg = resourceParams === 'undefined' ? 'undefined' : resourceParams;
+          const slotParamsArg =
+            resourceParams === 'undefined' ? 'undefined' : resourceParams;
           const decTagArg = dir.resource.decorationTagName ?? 'undefined';
           const cssClassArg = dir.resource.cssClassName ?? 'undefined';
           const decorationArg = dir.resource.decoration ?? 'undefined';
@@ -418,7 +416,8 @@ function buildInnerContent(
     const rtArg = dir.resourceType ? "'" + dir.resourceType + "'" : 'undefined';
     const resource = dir.resource;
     const resourceParams = formatCallParams(resource.params);
-    const slotParamsArg = resourceParams === 'undefined' ? 'undefined' : resourceParams;
+    const slotParamsArg =
+      resourceParams === 'undefined' ? 'undefined' : resourceParams;
     const decTagArg = resource.decorationTagName ?? 'undefined';
     const cssClassArg = resource.cssClassName ?? 'undefined';
     const decorationArg = resource.decoration ?? 'undefined';

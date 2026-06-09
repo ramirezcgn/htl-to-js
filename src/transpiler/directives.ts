@@ -7,6 +7,7 @@ import {
   extractExprs,
   extractContext,
   extractDynamicContext,
+  splitAtAtSign,
 } from './expr';
 
 const HTL_VALUE_RE =
@@ -132,11 +133,9 @@ function resolveHtlPath(val: string, sourceDir: string): string | null {
 }
 
 function parseUseDefault(val: string): string | null {
-  const atIdx = val.indexOf('@');
-  if (atIdx === -1) return null;
-  const vals = [...val.slice(atIdx + 1).matchAll(/\w+\s*=\s*(\w+)/g)].map(
-    (m) => m[1]
-  );
+  const [, optStr] = splitAtAtSign(val);
+  if (optStr == null) return null;
+  const vals = [...optStr.matchAll(/\w+\s*=\s*(\w+)/g)].map((m) => m[1]);
   return vals.length ? `{ ${vals.join(', ')} }` : null;
 }
 
@@ -155,9 +154,8 @@ function parseHtlPathAndOptions(raw: string): {
   const trimmed = raw.trim();
   const isWrappedExpr = trimmed.startsWith('${') && trimmed.endsWith('}');
   const inner = isWrappedExpr ? trimmed.slice(2, -1).trim() : trimmed;
-  const atIdx = inner.indexOf('@');
-  const pathPart = (atIdx === -1 ? inner : inner.slice(0, atIdx)).trim();
-  const params = atIdx === -1 ? {} : parseHtlOptions(inner.slice(atIdx + 1));
+  const [pathPart, optStr] = splitAtAtSign(inner);
+  const params = optStr === null ? {} : parseHtlOptions(optStr);
   const overridePath = params.path;
   if (overridePath) delete params.path;
   const literalPath = pathPart
@@ -254,9 +252,9 @@ function parseRepeatIterationOptions(raw: string): {
     trimmed.startsWith('${') && trimmed.endsWith('}')
       ? trimmed.slice(2, -1).trim()
       : trimmed;
-  const atIdx = inner.indexOf('@');
-  if (atIdx === -1) return { beginExpr: null, endExpr: null, stepExpr: null };
-  const opts = parseHtlOptions(inner.slice(atIdx + 1));
+  const [, rangeOptStr] = splitAtAtSign(inner);
+  if (rangeOptStr === null) return { beginExpr: null, endExpr: null, stepExpr: null };
+  const opts = parseHtlOptions(rangeOptStr);
   return {
     beginExpr: opts.begin ?? null,
     endExpr: opts.end ?? null,
@@ -534,13 +532,12 @@ function parseCallExpr(raw: string): CallDescriptor {
     .trim()
     .replace(/^\$\{([\s\S]+)\}$/, '$1')
     .trim();
-  const atIdx = inner.indexOf('@');
-  const fn = (atIdx === -1 ? inner : inner.slice(0, atIdx)).trim();
+  const [fnRaw, callOptStr] = splitAtAtSign(inner);
+  const fn = fnRaw.trim();
 
   const params: Record<string, string> = {};
-  if (atIdx !== -1) {
-    const optStr = inner.slice(atIdx + 1);
-    for (const m of optStr.matchAll(HTL_VALUE_RE)) {
+  if (callOptStr !== null) {
+    for (const m of callOptStr.matchAll(HTL_VALUE_RE)) {
       params[m[1].trim()] = convertExpr(m[2].trim());
     }
   }

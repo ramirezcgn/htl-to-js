@@ -3,7 +3,7 @@
  * i.e. not inside a string literal, parentheses, or brackets.
  * Returns [valuePart, optionsPart] where optionsPart is null when there is no @.
  */
-function splitAtAtSign(expr: string): [string, string | null] {
+export function splitAtAtSign(expr: string): [string, string | null] {
   let inStr: string | null = null;
   let depth = 0;
   for (let i = 0; i < expr.length; i++) {

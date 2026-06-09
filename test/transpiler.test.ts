@@ -414,6 +414,13 @@ describe('transpile — data-sly-include', () => {
     expect(out).toContain("_incSlot(_includes, 'partials/template.html')");
   });
 
+  it('@ inside path string literal is not mistaken for the option separator', () => {
+    // Bug: indexOf('@') split at the @ inside the string, truncating the path.
+    const src = `<sly data-sly-include="\${'user@domain/partial.html' @ appendPath='footer'}"></sly>`;
+    const out = transpile(src, { filename: 'test.html' });
+    expect(out).toContain("_incSlot(_includes, 'user@domain/partial.html/footer')");
+  });
+
   it('uses _htlJoinPaths for dynamic appendPath', () => {
     const src = `<sly data-sly-include="\${'partials' @ appendPath=model.tpl}"></sly>`;
     const out = transpile(src, { filename: 'test.html' });
@@ -992,6 +999,13 @@ describe('transpile — data-sly-resource', () => {
     const src = `<sly data-sly-resource="\${'my/path' @ prependPath='root'}"></sly>`;
     const out = transpile(src, { filename: 'test.html' });
     expect(out).toContain("'root/my/path'");
+  });
+
+  it('@ inside path string literal is not mistaken for the option separator', () => {
+    // Bug: indexOf('@') split at the @ inside the string, truncating the path.
+    const src = `<sly data-sly-resource="\${'user@domain/slot' @ appendPath='child'}"></sly>`;
+    const out = transpile(src, { filename: 'test.html' });
+    expect(out).toContain("'user@domain/slot/child'");
   });
 
   it('treats bare undefined variable as string literal key', () => {
@@ -4613,6 +4627,20 @@ describe('generateDts', () => {
     expect(dts).toContain('export declare function createHeader(');
     expect(dts).toContain('export declare function createFooter(');
   });
+
+  it('return type is the rich metadata object, not plain string', () => {
+    const code = transpile('<div>${model.title}</div>', { filename: 'card.html' });
+    const dts = generateDts(code);
+    expect(dts).toContain('toString(): string');
+    expect(dts).toContain('_class: string');
+    expect(dts).toContain('_resourceType: string | null');
+    expect(dts).toContain('_slots: string[] | undefined');
+    expect(dts).toContain('_hasOwnDecoration: boolean');
+    expect(dts).toContain('_decorationTagName: string | undefined');
+    expect(dts).toContain('_attrs: Record<string, unknown>');
+    // return type must not be the bare primitive `string`
+    expect(dts).not.toMatch(/\(args\?[^)]*\): string;/);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -5960,15 +5988,13 @@ describe('htl loader — error recovery', () => {
     fn.call(ctx, source);
   }
 
-  it('on success: callback receives generated code and a source map', () => {
+  it('on success: callback receives generated code (no source map stub)', () => {
     const ctx = makeCtx('/apps/mysite/card/card.html');
     runLoader(ctx, '<div>${model.title}</div>');
     expect(ctx.errors).toHaveLength(0);
     expect(ctx.result?.code).toContain('createCard');
-    expect(ctx.result?.map).toMatchObject({
-      version: 3,
-      sources: ['/apps/mysite/card/card.html'],
-    });
+    // The AAAA stub was removed — webpack builds its own source map chain.
+    expect(ctx.result?.map).toBeUndefined();
   });
 
   it('on transpile error: emits descriptive error and fallback code throws', () => {
@@ -6006,6 +6032,64 @@ describe('htl loader — error recovery', () => {
     const mod: any = { exports: {} };
     new Function('module', proxyLine!)(mod);
     expect(() => mod.exports.createBroken).toThrow(/broken\.html/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// P1 — usePathCaching option
+// ---------------------------------------------------------------------------
+
+describe('transpile — usePathCaching', () => {
+  let tmpDir: string;
+  const src = `<sly data-sly-use.model="\${some.Model}"><div>\${model.title}</div></sly>`;
+
+  beforeEach(() => {
+    tmpDir = fs.mkdtempSync(path.join(require('os').tmpdir(), 'htl-cache-'));
+    // Minimal jcr_root so buildDynamicUsePathMap has a root anchor
+    fs.mkdirSync(path.join(tmpDir, 'jcr_root', 'apps', 'test'), {
+      recursive: true,
+    });
+  });
+
+  afterEach(() => {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it('default (usePathCaching=false): new file on disk is picked up in second transpilation', () => {
+    const filename = path.join(tmpDir, 'jcr_root', 'apps', 'test', 'comp.html');
+
+    // First transpilation — new.html does NOT exist yet
+    const out1 = transpile(src, { filename });
+    expect(out1).not.toContain('new.html');
+
+    // Add new.html to disk
+    fs.writeFileSync(
+      path.join(tmpDir, 'jcr_root', 'apps', 'test', 'new.html'),
+      '<div>new</div>',
+      'utf8'
+    );
+
+    // Second transpilation — must pick up new.html (no stale cache)
+    const out2 = transpile(src, { filename });
+    expect(out2).toContain('new.html');
+  });
+
+  it('usePathCaching=true: new file on disk is NOT picked up in second transpilation', () => {
+    const filename = path.join(tmpDir, 'jcr_root', 'apps', 'test', 'comp.html');
+
+    // First transpilation — cached.html does NOT exist yet
+    transpile(src, { filename, usePathCaching: true });
+
+    // Add cached.html to disk after the cache is populated
+    fs.writeFileSync(
+      path.join(tmpDir, 'jcr_root', 'apps', 'test', 'cached.html'),
+      '<div>cached</div>',
+      'utf8'
+    );
+
+    // Second transpilation — cache returns stale map, cached.html must NOT appear
+    const out2 = transpile(src, { filename, usePathCaching: true });
+    expect(out2).not.toContain('cached.html');
   });
 });
 

@@ -70,15 +70,7 @@ function htlLoader(this: any, source: string): void {
     return;
   }
 
-  const sourceMap = {
-    version: 3 as const,
-    sources: [this.resourcePath],
-    sourcesContent: [source],
-    mappings: 'AAAA',
-    names: [] as string[],
-  };
-
-  this.callback(null, code, sourceMap);
+  this.callback(null, code);
 }
 
 export = htlLoader;

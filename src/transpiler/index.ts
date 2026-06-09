@@ -76,6 +76,7 @@ interface TranspileOptions {
   >;
   format?: 'cjs' | 'esm';
   sourceURL?: boolean;
+  usePathCaching?: boolean;
 }
 
 interface ParamDecl {
@@ -119,6 +120,7 @@ export function transpile(
     fileOverrides = {},
     format = 'cjs',
     sourceURL: emitSourceURL = true,
+    usePathCaching = false,
   }: TranspileOptions = {}
 ): string {
   const expandedSource = htlSource.replaceAll(EXPAND_SLY_RE, '<sly$1></sly>');
@@ -157,27 +159,22 @@ export function transpile(
 
   let body: string;
   if (templates.length > 0) {
-    body = transpileNamedTemplates(
-      templates,
-      omitAttrs,
-      sourceDir,
+    body = transpileNamedTemplates(templates, omitAttrs, sourceDir, {
       modelTransforms,
-      serializedFileOverrides,
+      fileOverrides: serializedFileOverrides,
       i18nDefault,
-      format
-    );
+      format,
+      usePathCaching,
+    });
   } else {
-    body = transpileSingleTemplate(
-      document,
-      filename,
-      omitAttrs,
-      sourceDir,
+    body = transpileSingleTemplate(document, filename, omitAttrs, sourceDir, {
       modelTransforms,
       wrapperClass,
-      serializedFileOverrides,
+      fileOverrides: serializedFileOverrides,
       i18nDefault,
-      format
-    );
+      format,
+      usePathCaching,
+    });
   }
 
   const banner = `// AUTO-GENERATED from ${path.basename(filename)} — DO NOT EDIT\n\n`;
@@ -314,16 +311,11 @@ function transpileInlineHtl(
     );
   }
 
-  const rawBody = transpileNamedTemplates(
-    templates,
-    omitAttrs,
-    sourceDir,
+  const rawBody = transpileNamedTemplates(templates, omitAttrs, sourceDir, {
     modelTransforms,
     fileOverrides,
-    undefined,
-    'cjs',
-    false
-  );
+    includeDynamicUsePathDecl: false,
+  });
 
   const declarations = restoreVarCasing(
     rawBody.replace(/\n\nmodule\.exports\s*=\s*\{[^}]*\};/, ''),
@@ -378,15 +370,28 @@ function collectTemplates(
   }
 }
 
+interface InternalTranspileOpts {
+  modelTransforms?: Record<string, Record<string, ModelTransformValue>>;
+  wrapperClass?: string | boolean;
+  fileOverrides?: Record<string, string>;
+  i18nDefault?: string;
+  format?: 'cjs' | 'esm';
+  includeDynamicUsePathDecl?: boolean;
+  usePathCaching?: boolean;
+}
+
 function transpileNamedTemplates(
   templates: TemplateInfo[],
   omitAttrs: RegExp[],
   sourceDir: string,
-  modelTransforms: Record<string, Record<string, ModelTransformValue>> = {},
-  fileOverrides: Record<string, string> = {},
-  i18nDefault?: string,
-  format: 'cjs' | 'esm' = 'cjs',
-  includeDynamicUsePathDecl: boolean = true
+  {
+    modelTransforms = {},
+    fileOverrides = {},
+    i18nDefault,
+    format = 'cjs',
+    includeDynamicUsePathDecl = true,
+    usePathCaching = false,
+  }: InternalTranspileOpts = {}
 ): string {
   const implicits = i18nDefault
     ? { ...AEM_IMPLICITS, _i18n: i18nDefault }
@@ -491,7 +496,7 @@ function transpileNamedTemplates(
   parts.push(exportLine);
   const prefix = esmImportLines.length ? esmImportLines.join('\n') + '\n' : '';
   const dynamicUsePathDecl = includeDynamicUsePathDecl
-    ? buildDynamicUsePathDecl(sourceDir)
+    ? buildDynamicUsePathDecl(sourceDir, usePathCaching)
     : '';
   return prefix + dynamicUsePathDecl + parts.join('\n\n');
 }
@@ -505,12 +510,15 @@ function transpileSingleTemplate(
   filename: string,
   omitAttrs: RegExp[],
   sourceDir: string,
-  modelTransforms: Record<string, Record<string, ModelTransformValue>> = {},
-  wrapperClass?: string | boolean,
-  fileOverrides: Record<string, string> = {},
-  i18nDefault?: string,
-  format: 'cjs' | 'esm' = 'cjs',
-  includeDynamicUsePathDecl: boolean = true
+  {
+    modelTransforms = {},
+    wrapperClass,
+    fileOverrides = {},
+    i18nDefault,
+    format = 'cjs',
+    includeDynamicUsePathDecl = true,
+    usePathCaching = false,
+  }: InternalTranspileOpts = {}
 ): string {
   const implicits = i18nDefault
     ? { ...AEM_IMPLICITS, _i18n: i18nDefault }
@@ -578,7 +586,7 @@ function transpileSingleTemplate(
       : `\nmodule.exports = { ${fnName} };`;
   const prefix = esmImportLines.length ? esmImportLines.join('\n') + '\n' : '';
   const dynamicUsePathDecl = includeDynamicUsePathDecl
-    ? buildDynamicUsePathDecl(sourceDir)
+    ? buildDynamicUsePathDecl(sourceDir, usePathCaching)
     : '';
   return (
     prefix +
@@ -739,11 +747,16 @@ function collectFiles(rootDir: string, allowedExts: Set<string>): string[] {
 
 const _dynamicUsePathCache = new Map<string, Record<string, string>>();
 
-function buildDynamicUsePathMap(sourceDir: string): Record<string, string> {
+function buildDynamicUsePathMap(
+  sourceDir: string,
+  useCache: boolean
+): Record<string, string> {
   const rootDir = findNearestJcrRoot(sourceDir) ?? path.resolve(sourceDir);
 
-  const cached = _dynamicUsePathCache.get(rootDir);
-  if (cached) return cached;
+  if (useCache) {
+    const cached = _dynamicUsePathCache.get(rootDir);
+    if (cached) return cached;
+  }
 
   const map: Record<string, string> = {};
   const sourceRoot = path.resolve(sourceDir);
@@ -767,13 +780,13 @@ function buildDynamicUsePathMap(sourceDir: string): Record<string, string> {
     }
   }
 
-  _dynamicUsePathCache.set(rootDir, map);
+  if (useCache) _dynamicUsePathCache.set(rootDir, map);
   return map;
 }
 
-function buildDynamicUsePathDecl(sourceDir: string): string {
+function buildDynamicUsePathDecl(sourceDir: string, useCache: boolean): string {
   if (!fs.existsSync(sourceDir)) return '';
-  const map = buildDynamicUsePathMap(sourceDir);
+  const map = buildDynamicUsePathMap(sourceDir, useCache);
   const keys = Object.keys(map);
   if (!keys.length) return '';
   return [
@@ -1100,8 +1113,18 @@ export function generateDts(jsSource: string): string {
     const propsType = paramNames.length
       ? `{ ${propList} }`
       : 'Record<string, any>';
+    const returnType = [
+      '{ toString(): string',
+      '_class: string',
+      '_resourceType: string | null',
+      '_slots: string[] | undefined',
+      '_hasOwnDecoration: boolean',
+      '_decorationTagName: string | undefined',
+      '_attrs: Record<string, unknown>',
+      '}',
+    ].join('; ');
     lines.push(
-      `export declare function ${fnName}(args?: ${propsType}): string;`
+      `export declare function ${fnName}(args?: ${propsType}): ${returnType};`
     );
   }
   if (slotsMatch) {

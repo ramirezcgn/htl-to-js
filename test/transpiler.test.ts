@@ -387,7 +387,7 @@ describe('transpile — data-sly-include', () => {
   it('generates an _includes slot for literal paths', () => {
     const src = `<sly data-sly-include="./header.html"></sly>`;
     const out = transpile(src, { filename: 'test.html' });
-    expect(out).toContain("_incSlot(_includes, './header.html')");
+    expect(out).toContain("_fileSlot(_includes, './header.html',");
   });
 
   it('adds _includes as a parameter', () => {
@@ -396,29 +396,115 @@ describe('transpile — data-sly-include', () => {
     expect(out).toContain('_includes =');
   });
 
+  it('static include uses _fileSlot with inline require() fallback', () => {
+    const src = `<sly data-sly-include="./header.html"></sly>`;
+    const out = transpile(src, { filename: 'test.html' });
+    expect(out).toContain("_fileSlot(_includes, './header.html',");
+    expect(out).toContain('require(\'./header.html\')');
+  });
+
+  it('caller _includes overrides the require() fallback (caller wins)', () => {
+    const src = `<sly data-sly-include="./header.html"></sly>`;
+    const out = transpile(src, { filename: 'test.html' });
+    // _fileSlot checks _includes first before calling the require() fallback
+    expect(out).toContain("_fileSlot(_includes, './header.html',");
+    expect(out).toContain('require(\'./header.html\')');
+  });
+
+  it('static and dynamic includes both use _fileSlot (consistent behavior)', () => {
+    const srcStatic = `<sly data-sly-include="./header.html"></sly>`;
+    const srcDynamic = `<sly data-sly-include="\${model.template}"></sly>`;
+    const outStatic = transpile(srcStatic, { filename: 'test.html' });
+    const outDynamic = transpile(srcDynamic, { filename: 'test.html' });
+    // Both use _fileSlot — consistent override + fallback behavior
+    expect(outStatic).toContain('_fileSlot(_includes,');
+    expect(outDynamic).toContain('_fileSlot(_includes,');
+  });
+
+  it('dynamic paths use inline require fallback anchored to the component dir', () => {
+    const src = `<sly data-sly-include="\${model.template}"></sly>`;
+    const out = transpile(src, { filename: 'test.html' });
+    // Wrapped in a template literal with a static './' prefix so webpack can
+    // analyze the dynamic require and scope the context to the component dir
+    // (never above jcr_root) instead of warning about an expression request.
+    expect(out).toContain('require(`./${String(model?.template ??');
+    expect(out).not.toContain('require(model?.template)');
+    expect(out).not.toContain('Object.assign({');
+  });
+
+  it('dynamic include resolves component-relative paths at runtime (./ and ../)', () => {
+    const src = `<sly data-sly-include="\${model.template}"></sly>`;
+    const out = transpile(src, { filename: 'test.html' });
+    const mod: any = {};
+    const seen: string[] = [];
+    const fakeRequire = (id: string) => {
+      seen.push(id);
+      return { create: () => `<i>${id}</i>` };
+    };
+    new Function('module', 'require', out)(mod, fakeRequire);
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
+    // leading './' is not doubled; a sibling '../' path is preserved
+    expect(fn({ model: { template: './header.html' } })).toContain('./header.html');
+    expect(fn({ model: { template: '../shared/footer.html' } })).toContain(
+      '../shared/footer.html'
+    );
+    expect(seen).not.toContain('.//header.html');
+  });
+
+  it('ESM static include uses _fileSlot inline (no import * pre-population)', () => {
+    const src = `<sly data-sly-include="./header.html"></sly>`;
+    const out = transpile(src, { filename: 'test.html', format: 'esm' });
+    expect(out).toContain("_fileSlot(_includes, './header.html',");
+    expect(out).toContain('require(\'./header.html\')');
+    expect(out).not.toContain('import * as _incauto');
+  });
+
   it('handles dynamic include expressions', () => {
     const src = `<sly data-sly-include="\${model.template}"></sly>`;
     const out = transpile(src, { filename: 'test.html' });
-    expect(out).toContain('_incSlot(_includes, model?.template)');
+    // Dynamic path: emits _includes check + require() fallback, with the key expression inside
+    expect(out).toContain('_fileSlot(_includes,');
+    expect(out).toContain('model?.template');
+  });
+
+  it('dynamic template-literal include checks _includes first', () => {
+    const src = `<sly data-sly-include="\${model.template}"></sly>`;
+    const out = transpile(src, { filename: 'test.html' });
+    // _fileSlot handles the _includes-first logic internally
+    expect(out).toContain('_fileSlot(_includes,');
+    expect(out).toContain('model?.template');
+    expect(out).toContain('require(');
+  });
+
+  it('dynamic template-literal include generates inline require() for webpack bundling', () => {
+    // Dynamic path e.g. model?.template — webpack require() fallback allows bundling
+    const src = `<sly data-sly-include="\${model.template}"></sly>`;
+    const out = transpile(src, { filename: 'test.html' });
+    expect(out).toContain('require(');
+    // _fileSlot call appears before the require() fallback in the generated code
+    const fileSlotIdx = out.indexOf('_fileSlot(_includes,');
+    const requireIdx = out.indexOf('require(');
+    expect(fileSlotIdx).toBeGreaterThanOrEqual(0);
+    expect(fileSlotIdx).toBeLessThan(requireIdx);
   });
 
   it('composes path with appendPath at compile time', () => {
     const src = `<sly data-sly-include="\${'partials' @ appendPath='template.html'}"></sly>`;
     const out = transpile(src, { filename: 'test.html' });
-    expect(out).toContain("_incSlot(_includes, 'partials/template.html')");
+    expect(out).toContain("_fileSlot(_includes, 'partials/template.html',");
   });
 
   it('composes path with prependPath at compile time', () => {
     const src = `<sly data-sly-include="\${'template.html' @ prependPath='partials'}"></sly>`;
     const out = transpile(src, { filename: 'test.html' });
-    expect(out).toContain("_incSlot(_includes, 'partials/template.html')");
+    expect(out).toContain("_fileSlot(_includes, 'partials/template.html',");
   });
 
   it('@ inside path string literal is not mistaken for the option separator', () => {
     // Bug: indexOf('@') split at the @ inside the string, truncating the path.
     const src = `<sly data-sly-include="\${'user@domain/partial.html' @ appendPath='footer'}"></sly>`;
     const out = transpile(src, { filename: 'test.html' });
-    expect(out).toContain("_incSlot(_includes, 'user@domain/partial.html/footer')");
+    expect(out).toContain("_fileSlot(_includes, 'user@domain/partial.html/footer',");
   });
 
   it('uses _htlJoinPaths for dynamic appendPath', () => {
@@ -1052,7 +1138,73 @@ describe('transpile — data-sly-resource', () => {
 });
 
 // ---------------------------------------------------------------------------
-// P0 — data-sly-template + data-sly-call
+// _includes override for data-sly-use + data-sly-call (consistency with data-sly-include)
+// ---------------------------------------------------------------------------
+
+describe('transpile — data-sly-use + data-sly-call _includes override', () => {
+  it('generates _includes check before require() for static file use+call', () => {
+    // header.html must exist on disk for resolveHtlPath to add it to fileUse
+    const src = [
+      '<sly data-sly-use.header="./header.html"',
+      '     data-sly-call="${header.default @ title=model.title}">',
+      '</sly>',
+    ].join('\n');
+    const out = transpile(src, { filename: path.join(fixturesDir, 'test.html') });
+    // _fileSlot wraps both the _includes check and the require() fallback
+    expect(out).toContain("_fileSlot(_includes, './header.html',");
+    expect(out).toContain("require('./header.html')");
+    // _fileSlot call appears before the require() in the generated code
+    expect(out.indexOf("_fileSlot(_includes, './header.html',")).toBeLessThan(
+      out.indexOf("require('./header.html')")
+    );
+  });
+
+  it('_includes["./header.html"] overrides the require() for static use+call', () => {
+    const src = [
+      '<sly data-sly-use.header="./header.html"',
+      '     data-sly-call="${header.default @ title=\'Test\'}">',
+      '</sly>',
+    ].join('\n');
+    const out = transpile(src, { filename: path.join(fixturesDir, 'test.html') });
+    expect(out).toContain("_fileSlot(_includes, './header.html',");
+    expect(out).toContain("require('./header.html')");
+
+    // Runtime: _includes override is used instead of the require'd module
+    const mod: any = {};
+    const fakeRequire = (id: string) => {
+      if (id === './header.html') {
+        throw new Error('should not be called when _includes has the key');
+      }
+      return {};
+    };
+    new Function('module', 'require', out)(mod, fakeRequire);
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
+    const html = fn({
+      _includes: { './header.html': '<nav>Overridden</nav>' },
+    });
+    expect(html).toContain('<nav>Overridden</nav>');
+  });
+
+  it('dynamic use+call: _includes check wraps the require(templateLiteral)', () => {
+    // tabs-${model.tabsTemplate}.html — template literal dynamic path
+    const src = fs.readFileSync(path.join(fixturesDir, 'tabs-host.html'), 'utf8');
+    const out = transpile(src, { filename: path.join(fixturesDir, 'tabs-host.html') });
+    // _fileSlot is used instead of inline ternary
+    expect(out).toContain('_fileSlot(_includes,');
+    expect(out).toContain('require(');
+    // _fileSlot call appears before the require() fallback
+    expect(out.indexOf('_fileSlot(_includes,')).toBeLessThan(out.indexOf('require('));
+  });
+
+  it('dynamic use+call require keeps the static path prefix visible to webpack', () => {
+    // tabs-${model.tabsTemplate}.html — the literal must be inlined inside
+    // require() (not indirected through _rp) so webpack can scope the context.
+    const src = fs.readFileSync(path.join(fixturesDir, 'tabs-host.html'), 'utf8');
+    const out = transpile(src, { filename: path.join(fixturesDir, 'tabs-host.html') });
+    expect(out).toContain('require(`./tabs-${');
+    expect(out).not.toContain('require(_rp)');
+  });
+});
 // ---------------------------------------------------------------------------
 
 describe('transpile — data-sly-template & data-sly-call', () => {
@@ -1382,13 +1534,13 @@ describe('transpile — self-closing <sly/> expansion', () => {
   it('handles self-closing sly with include', () => {
     const src = `<sly data-sly-include="./partial.html"/>`;
     const out = transpile(src, { filename: 'test.html' });
-    expect(out).toContain("_incSlot(_includes, './partial.html')");
+    expect(out).toContain("_fileSlot(_includes, './partial.html',");
   });
 
   it('handles self-closing sly with test', () => {
     const src = `<sly data-sly-test="\${model.show}" data-sly-include="./header.html"/>`;
     const out = transpile(src, { filename: 'test.html' });
-    expect(out).toContain("_incSlot(_includes, './header.html')");
+    expect(out).toContain("_fileSlot(_includes, './header.html',");
     expect(out).toContain('model?.show');
   });
 });

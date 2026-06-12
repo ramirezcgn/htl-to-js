@@ -114,7 +114,7 @@ Without this, Storybook throws _"Did you forget to return the HTML snippet from 
 | `data-sly-template.name="${ @ params }"` | Named export function |
 | `data-sly-call="${tmpl @ p=v}"` | Invokes a template function |
 | `data-sly-resource="${expr}"` | Slot via `_includes` map |
-| `data-sly-include="./file.html"` | Delegates to `_includes` map |
+| `data-sly-include="./file.html"` | Auto-requires the file; `_includes` override takes priority |
 | `<sly>` | Transparent wrapper — only children are rendered |
 
 Both `data-sly-repeat` and `data-sly-list` support bare forms (without `.varName`) that default to `item` as the iteration variable. They also provide a `${itemList}` status object with `index`, `count`, `first`, `last`, `middle`, `odd`, and `even` properties.
@@ -482,7 +482,14 @@ Calls a named template passing parameters. The binding declared via `data-sly-us
 Generated:
 
 ```js
-${require('./default.html').createDefault?.({ model: item, _includes }) ?? ''}
+${_fileSlot(_includes, './default.html', { model: item, _includes }, () => require('./default.html').createDefault?.({ ..._rest, model: item, _includes })) ?? ''}
+```
+
+Like `data-sly-include`, the generated code **checks `_includes` first** before calling `require()`. This means you can override any file-based `data-sly-use` + `data-sly-call` from a story by passing its path as a slot:
+
+```js
+// Story: override the file entirely via _includes
+fn({ _includes: { './default.html': '<span>Overridden</span>' } })
 ```
 
 When the host element is not `<sly>`, the call output is wrapped in that element:
@@ -512,7 +519,17 @@ export const Default = {
 
 ## `data-sly-include`
 
-Includes another HTL file at runtime. The loader generates a slot in the `_includes` map.
+Includes another HTL file at runtime. The transpiler generates a `_fileSlot` call that:
+
+1. Checks `_includes` first — if the caller passes a slot for that path, it is used (override wins).
+2. Falls back to an inline `require()` of the file — webpack sees this at build time and bundles all matching files automatically.
+
+This applies to **all** path forms: literal, composed (`appendPath`/`prependPath`), and dynamic expressions.
+
+Dynamic paths are wrapped in a template literal with a static `./` prefix
+(`` require(`./${...}`) ``) so webpack can statically analyze the request and
+**scope the dynamic-require context to the component directory** — it never
+climbs above `jcr_root`.
 
 ```html
 <!-- Literal path -->
@@ -521,7 +538,7 @@ Includes another HTL file at runtime. The loader generates a slot in the `_inclu
 <!-- Dynamic path -->
 <sly data-sly-include="${model.templatePath}"></sly>
 
-<!-- Arguments are forwarded to the slot function -->
+<!-- Arguments are forwarded to the included file's function -->
 <sly data-sly-include="./header.html @ wcmmode='edit'"></sly>
 
 <!-- appendPath / prependPath -->
@@ -533,21 +550,21 @@ Generated:
 
 ```js
 // Literal path
-${_incSlot(_includes, './header.html')}
+${_fileSlot(_includes, './header.html', {}, () => { try { const _m = require('./header.html'); const _fn = Object.values(_m).find(f => typeof f === 'function'); return _fn ? _arrJoin(_fn({})) : ''; } catch { return ''; } })}
 
-// Dynamic path
-${_incSlot(_includes, model?.templatePath)}
+// Dynamic path — static './' prefix lets webpack scope the context to the component dir
+${_fileSlot(_includes, model?.templatePath, {}, () => { try { const _m = require(`./${String(model?.templatePath ?? '').replace(/^\.?\/+/, '')}`); ... } catch (_e) { console.warn(...); return ''; } })}
 
 // With args
-${_incSlot(_includes, './header.html', { wcmmode: 'edit' })}
+${_fileSlot(_includes, './header.html', { wcmmode: 'edit' }, () => { ... require('./header.html') ... })}
 
 // appendPath/prependPath — resolved at compile time when both sides are string literals
-${_incSlot(_includes, 'partials/template.html')}
+${_fileSlot(_includes, 'partials/template.html', {}, () => { ... require('partials/template.html') ... })}
 // Dynamic operands fall back to a runtime helper
-${_incSlot(_includes, _htlJoinPaths('partials', undefined, model?.tpl))}
+${_fileSlot(_includes, _htlJoinPaths('partials', undefined, model?.tpl), {}, () => { ... })}
 ```
 
-In the story, pass either a function (component factory) or a plain string:
+In the story, pass either a function (component factory) or a plain string. When a slot is present in `_includes`, the `require()` fallback is never called:
 
 ```js
 import { createHeader } from '../header.html';
@@ -555,13 +572,15 @@ import { createHeader } from '../header.html';
 export const Default = {
   args: {
     _includes: {
-      './header.html': createHeader,
-      './footer.html': () => '<footer>Footer content</footer>',
-      './banner.html': '<div class="banner">Static banner</div>', // plain string also works
+      './header.html': createHeader,               // overrides auto-require
+      './footer.html': () => '<footer>Footer</footer>',
+      './banner.html': '<div class="banner">Static</div>', // plain string also works
     }
   }
 }
 ```
+
+When no `_includes` slot is provided for a path, the file is required and its first exported function is called with the params from the HTL `@` options.
 
 ---
 

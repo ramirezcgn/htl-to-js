@@ -37,8 +37,16 @@ const VOID_ELEMENTS = new Set([
   'wbr',
 ]);
 
+const STATIC_STR_RE = /^'(?:[^'\\]|\\.)*'$/;
+
 const buildExtraParams = (paramsStr: string) =>
   paramsStr ? `${paramsStr}, _includes` : '_includes';
+
+const webpackRequire = (pathExpr: string): string => {
+  const e = pathExpr.trim();
+  if (STATIC_STR_RE.test(e) || e.startsWith('`')) return `require(${pathExpr})`;
+  return `require(\`./\${String(${pathExpr} ?? '').replace(/^\\.?\\/+/, '')}\`)`;
+};
 
 export interface WalkerContext {
   uses: Record<string, string>;
@@ -255,7 +263,9 @@ function processElement(node: any, ctx: WalkerContext): string {
         const jsFnName =
           'create' + methodName.charAt(0).toUpperCase() + methodName.slice(1);
         const extraParams = buildExtraParams(paramsStr);
-        callContent = `\${require('${filePath}').${jsFnName}?.({ ..._rest, ${extraParams} }) ?? ''}`;
+        const callParams = `{ ${paramsStr ? paramsStr + ', ' : ''}_includes }`;
+        callContent =
+          `\${_fileSlot(_includes, '${filePath}', ${callParams}, () => require('${filePath}').${jsFnName}?.({ ..._rest, ${extraParams} })) ?? ''}`;
       } else {
         const dynamicFilePath =
           dir.dynamicFileUse?.[callObjName] || ctx.dynamicFileUse[callObjName];
@@ -266,7 +276,12 @@ function processElement(node: any, ctx: WalkerContext): string {
           const requirePath = dynamicFilePath.startsWith('`')
             ? dynamicFilePath
             : `(() => { const _usePath = String(${dynamicFilePath} ?? ''); return _usePath.startsWith('/') || _usePath.startsWith('.') ? _usePath : './' + _usePath; })()`;
-          callContent = `\${require(${requirePath}).${jsFnName}?.({ ..._rest, ${extraParams} }) ?? ''}`;
+          const callParams = `{ ${paramsStr ? paramsStr + ', ' : ''}_includes }`;
+          const requireExpr = dynamicFilePath.startsWith('`')
+            ? webpackRequire(dynamicFilePath)
+            : webpackRequire('_rp');
+          callContent =
+            `\${((_rp) => _fileSlot(_includes, _rp, ${callParams}, () => ${requireExpr}.${jsFnName}?.({ ..._rest, ${extraParams} })))(${requirePath}) ?? ''}`;
         } else {
           const localFn = ctx.localTemplates[methodName];
           if (localFn) {
@@ -298,10 +313,10 @@ function processElement(node: any, ctx: WalkerContext): string {
 
   if (dir.include) {
     const includeParams = formatCallParams(dir.include.params);
+    const p = dir.include.path;
+    const paramsArg = includeParams === 'undefined' ? '{}' : includeParams;
     const includeExpr =
-      includeParams === 'undefined'
-        ? `_incSlot(_includes, ${dir.include.path})`
-        : `_incSlot(_includes, ${dir.include.path}, ${includeParams})`;
+      `_fileSlot(_includes, ${p}, ${paramsArg}, () => { try { const _m = ${webpackRequire(p)}; const _fn = Object.values(_m).find(f => typeof f === 'function'); return _fn ? _arrJoin(_fn(${paramsArg})) : ''; } catch (_e) { console.warn('[htl-to-js] data-sly-include failed for', ${p}, '— pass an _includes slot to override:', _e && _e.message ? _e.message : _e); return ''; } })`;
     return applyTest(dir.test, `\${${includeExpr}}`);
   }
 

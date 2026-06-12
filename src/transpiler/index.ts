@@ -53,7 +53,7 @@ const DEFAULT_FUNCTION_META = { _class: '', _resourceType: null } as const;
 
 const EXPAND_SLY_RE = /<sly\b([^>]*?)\/>/g;
 const SLOT_KEYS_RE =
-  /_incSlot\(_includes,\s*'([^']+)'|_wrapResource\('([^']+)',\s*_includes,/g;
+  /_(?:inc|file)Slot\(_includes,\s*'([^']+)'|_wrapResource\('([^']+)',\s*_includes,/g;
 
 interface TranspileOptions {
   filename?: string;
@@ -196,6 +196,7 @@ export function transpile(
     `const _inc = (v) => typeof v === 'function' ? v() : String(v ?? '');`,
     `const _arrJoin = (v) => Array.isArray(v) ? v.map(_arrJoin).join('') : (v == null ? '' : (typeof v === 'object' ? (v.toString !== Object.prototype.toString ? String(v) : JSON.stringify(v)) : String(v)));`,
     String.raw`const _incSlot = (inc, key, params) => { if (!inc) return ''; const v = inc[key]; if (v != null) return _arrJoin(typeof v === 'function' ? v(params) : v); if (typeof key === 'string') { const m = key.match(/^(.+)_(\d+)$/); if (m) { const b = inc[m[1]]; if (b != null) { const a = typeof b === 'function' ? b(params) : b; if (Array.isArray(a)) return _arrJoin(a[+m[2]]); if (+m[2] === 0) return _arrJoin(a); } } } return ''; };`,
+    `const _fileSlot = (inc, key, params, fallback) => { if (inc != null && key in inc) return _incSlot(inc, key, params); return fallback(); };`,
     `const _wrapResource = (key, includes, slotParams, wrappers, resourceType, decorationTagName, cssClassName, decoration, decorations) => {`,
     `  const _slotFn = includes != null && typeof includes[key] === 'function' ? includes[key] : null;`,
     `  const _raw = _slotFn ? _slotFn(slotParams ?? {}) : null;`,

@@ -834,12 +834,13 @@ function buildModelTransformDecls(
   modelTransforms: Record<string, Record<string, ModelTransformValue>>
 ): string {
   if (!Object.keys(modelTransforms).length) return '';
+  const scopeVars = Object.keys(uses);
   const lines: string[] = [];
   for (const [varName, useVal] of Object.entries(uses)) {
     for (const [classKey, props] of Object.entries(modelTransforms)) {
       if (classKeyMatchesUseVal(classKey, String(useVal))) {
         const resolve = (v: ModelTransformValue) =>
-          resolveModelTransformValue(v, varName);
+          resolveModelTransformValue(v, varName, scopeVars);
         const modelEntries = Object.entries(props).filter(
           ([k]) => !k.startsWith('_')
         );
@@ -864,13 +865,14 @@ function buildModelTransformDecls(
 
 function resolveModelTransformValue(
   value: ModelTransformValue,
-  varName: string
+  varName: string,
+  scopeVars: string[] = []
 ): string {
   if (typeof value !== 'function') {
     return String(value).replaceAll(/\bmodel\b/g, varName);
   }
 
-  const directExpr = serializeDirectModelTransform(value, varName);
+  const directExpr = serializeDirectModelTransform(value, varName, scopeVars);
 
   if (value.length === 0) {
     try {
@@ -909,12 +911,17 @@ function shouldTreatZeroArgStringResultAsLegacy(result: string): boolean {
 
 function serializeDirectModelTransform(
   value: Function,
-  varName: string
+  varName: string,
+  scopeVars: string[] = []
 ): string | null {
   const parsed = parseDirectTransformSource(value);
   if (!parsed) return null;
 
-  const bindings = parseDirectTransformBindings(parsed.params, varName);
+  const bindings = parseDirectTransformBindings(
+    parsed.params,
+    varName,
+    scopeVars
+  );
   if (!bindings) return null;
 
   const expression = parsed.isBlock
@@ -980,7 +987,8 @@ function parseDirectTransformSource(
 
 function parseDirectTransformBindings(
   paramsSource: string,
-  varName: string
+  varName: string,
+  scopeVars: string[] = []
 ): Map<string, string> | null {
   const bindings = new Map<string, string>();
   const entries = paramsSource
@@ -1016,6 +1024,20 @@ function parseDirectTransformBindings(
     const varNameAliasMatch = /^(\w+)\s*:\s*([A-Za-z_$][\w$]*)$/.exec(entry);
     if (varNameAliasMatch?.[1] === varName) {
       bindings.set(varNameAliasMatch[2], varName);
+      continue;
+    }
+
+    // Accept any other use var already in scope in this file (e.g. ({ carousel })
+    // when the transform's own varName is 'styleModel' but 'carousel' is another
+    // use var declared in the same template).
+    if (scopeVars.includes(entry)) {
+      bindings.set(entry, entry);
+      continue;
+    }
+
+    // Accept an alias of another in-scope use var (e.g. ({ carousel: c })).
+    if (varNameAliasMatch && scopeVars.includes(varNameAliasMatch[1])) {
+      bindings.set(varNameAliasMatch[2], varNameAliasMatch[1]);
       continue;
     }
 

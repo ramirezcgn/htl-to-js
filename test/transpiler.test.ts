@@ -4062,6 +4062,68 @@ describe('modelTransforms — array-of-items pattern (tabs / accordion / carouse
   });
 });
 
+describe('modelTransforms — cross use-var scope binding', () => {
+  it('binds a destructured param to another use var in the same file instead of falling back to _rest', () => {
+    // styleModel's transform destructures { carousel }, which is a *different*
+    // use var declared in the same template (not styleModel's own varName).
+    // It must resolve to the real `carousel` binding, not _rest.carousel.
+    const src = `
+      <div data-sly-use.carousel="com.example.Carousel"
+           data-sly-use.styleModel="com.example.CarouselStylesModel">\${styleModel.logos}</div>`;
+
+    const code = transpile(src, {
+      filename: 'test.html',
+      modelTransforms: {
+        CarouselStylesModel: {
+          logos: ({ carousel }: any) =>
+            (carousel?.items || []).map((item: any) => item.logo),
+        },
+      },
+    });
+
+    expect(code).not.toContain('_rest.carousel');
+
+    const mod: any = {};
+    new Function('module', code)(mod);
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
+
+    const html = fn({
+      carousel: { items: [{ logo: 'a.png' }, { logo: 'b.png' }] },
+      styleModel: {},
+    });
+    expect(html).toContain('a.png');
+    expect(html).toContain('b.png');
+  });
+
+  it('supports an alias of another in-scope use var (e.g. ({ carousel: c }))', () => {
+    const src = `
+      <div data-sly-use.carousel="com.example.Carousel"
+           data-sly-use.styleModel="com.example.CarouselStylesModel">\${styleModel.logos}</div>`;
+
+    const code = transpile(src, {
+      filename: 'test.html',
+      modelTransforms: {
+        CarouselStylesModel: {
+          logos: ({ carousel: c }: any) =>
+            (c?.items || []).map((item: any) => item.logo),
+        },
+      },
+    });
+
+    expect(code).not.toContain('_rest.carousel');
+
+    const mod: any = {};
+    new Function('module', code)(mod);
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
+
+    const html = fn({
+      carousel: { items: [{ logo: 'x.png' }] },
+      styleModel: {},
+    });
+    expect(html).toContain('x.png');
+  });
+});
+
 describe('transpile — content shorthand parameter', () => {
   it('createFn({ content }) renders as the parsys content slot', () => {
     const src = `<div data-sly-use.model="com.example.Page"><sly data-sly-resource="\${'content'}"></sly></div>`;

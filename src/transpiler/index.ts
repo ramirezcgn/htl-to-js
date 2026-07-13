@@ -54,6 +54,7 @@ const DEFAULT_FUNCTION_META = { _class: '', _resourceType: null } as const;
 const EXPAND_SLY_RE = /<sly\b([^>]*?)\/>/g;
 const SLOT_KEYS_RE =
   /_(?:inc|file)Slot\(_includes,\s*'([^']+)'|_wrapResource\('([^']+)',\s*_includes,/g;
+const RESOURCE_SLOT_KEYS_RE = /_wrapResource\('([^']+)',\s*_includes,/g;
 
 interface TranspileOptions {
   filename?: string;
@@ -638,8 +639,8 @@ function buildJsUseEsm(
 
 function findContentSlot(body: string): string | null {
   const slots: string[] = [];
-  for (const m of body.matchAll(SLOT_KEYS_RE)) {
-    slots.push(m[1] ?? m[2]);
+  for (const m of body.matchAll(RESOURCE_SLOT_KEYS_RE)) {
+    slots.push(m[1]);
   }
   const found = slots.find((s) => PARSYS_SLOTS.has(s)) ?? slots[0] ?? null;
   if (!found) return null;
@@ -1114,6 +1115,11 @@ export function generateDts(jsSource: string): string {
   const lines: string[] = [];
   const slotsMatch = /const __slots__ = (\[[^\]]*\])/.exec(jsSource);
   const slots: string[] = slotsMatch ? JSON.parse(slotsMatch[1]) : [];
+  // Only named resource slots (no file paths) get specific typed properties.
+  // File-path keys from data-sly-include/call remain overridable at runtime
+  // but don't appear as named TypeScript properties — they'd be confusing and
+  // are already covered by the index signature.
+  const namedSlots = slots.filter((s) => !/[/\\]|\.html$|\.js$/.test(s));
   for (const m of jsSource.matchAll(
     /const (create\w+) = \(\{((?:[^{}]|\{[^}]*\})*)\}\s*=\s*\{\}\)/g
   )) {
@@ -1123,11 +1129,11 @@ export function generateDts(jsSource: string): string {
       .split(',')
       .map((p) => p.replace(/\s*=[\s\S]*/g, '').trim())
       .filter((p) => /^\w+$/.test(p));
-    const slopMapper = slots
+    const slopMapper = namedSlots
       .map((s) => `'${s}'?: string | (() => string)`)
       .join('; ');
     const incType =
-      slots.length > 0
+      namedSlots.length > 0
         ? `{ ${slopMapper}; [key: string]: string | (() => string) | undefined }`
         : `Record<string, string | (() => string) | undefined>`;
     const propList = paramNames
@@ -1150,9 +1156,9 @@ export function generateDts(jsSource: string): string {
       `export declare function ${fnName}(args?: ${propsType}): ${returnType};`
     );
   }
-  if (slotsMatch) {
+  if (slotsMatch && namedSlots.length > 0) {
     lines.push(
-      `export declare const __slots__: ${slotsMatch[1].replace(/"/g, "'")};`
+      `export declare const __slots__: ${JSON.stringify(namedSlots).replace(/"/g, "'")};`
     );
   }
   return lines.join('\n') + '\n';

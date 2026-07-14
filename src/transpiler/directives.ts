@@ -26,6 +26,7 @@ export interface CallDescriptor {
 
 export interface Directives {
   use: Record<string, string>;
+  useClass: Record<string, string>;
   useDefaults: Record<string, string>;
   fileUse: Record<string, string>;
   dynamicFileUse: Record<string, string>;
@@ -253,13 +254,24 @@ function parseRepeatIterationOptions(raw: string): {
       ? trimmed.slice(2, -1).trim()
       : trimmed;
   const [, rangeOptStr] = splitAtAtSign(inner);
-  if (rangeOptStr === null) return { beginExpr: null, endExpr: null, stepExpr: null };
+  if (rangeOptStr === null)
+    return { beginExpr: null, endExpr: null, stepExpr: null };
   const opts = parseHtlOptions(rangeOptStr);
   return {
     beginExpr: opts.begin ?? null,
     endExpr: opts.end ?? null,
     stepExpr: opts.step ?? null,
   };
+}
+
+function extractUseClassFromAtExpr(trimmed: string): string | null {
+  if (!trimmed.startsWith('${') || !trimmed.endsWith('}')) return null;
+  const inner = trimmed.slice(2, -1).trim();
+  const [pathPart] = splitAtAtSign(inner);
+  const stripped = pathPart.trim().replace(/^['"](.+)['"]$/, '$1');
+  if (!stripped || stripped.includes('${') || stripped.includes(' '))
+    return null;
+  return stripped;
 }
 
 /**
@@ -272,6 +284,7 @@ export function parseDirectives(
 ): Directives {
   const directives: Directives = {
     use: {},
+    useClass: {},
     useDefaults: {},
     fileUse: {},
     dynamicFileUse: {},
@@ -334,6 +347,8 @@ export function parseDirectives(
         directives.use[name] = val;
         const def = parseUseDefault(trimmed);
         if (def) directives.useDefaults[name] = def;
+        const extractedClass = extractUseClassFromAtExpr(trimmed);
+        if (extractedClass) directives.useClass[name] = extractedClass;
       }
       directives.skip.add(key);
       continue;

@@ -4065,6 +4065,36 @@ describe('modelTransforms — classKey strict matching', () => {
     const fn = strFn(Object.values(mod.exports)[0] as Function);
     expect(fn({ tabs: {} })).toContain('fqn-match');
   });
+
+  it('applies a transform when the class name is inside ${...} with @ params', () => {
+    // Real-world pattern: data-sly-use.imageHelper="${'com.example.ImageHelper' @ params}"
+    // The literal class name is before the @, and modelTransforms should still match.
+    const src = `<div data-sly-use.imageHelper="\${'com.example.ImageHelper' @ params}">\${imageHelper.src}</div>`;
+    const code = transpile(src, {
+      filename: 'test.html',
+      modelTransforms: {
+        ImageHelper: { src: "'injected-src'" },
+      },
+    });
+    const mod: any = {};
+    new Function('module', code)(mod);
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
+    expect(fn({ imageHelper: {} })).toContain('injected-src');
+  });
+
+  it('applies a transform using the fully-qualified class inside ${...} @ params', () => {
+    const src = `<div data-sly-use.helper="\${'com.example.ImageHelper' @ params}">\${helper.src}</div>`;
+    const code = transpile(src, {
+      filename: 'test.html',
+      modelTransforms: {
+        'com.example.ImageHelper': { src: "'fqn-injected'" },
+      },
+    });
+    const mod: any = {};
+    new Function('module', code)(mod);
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
+    expect(fn({ helper: {} })).toContain('fqn-injected');
+  });
 });
 
 describe('modelTransforms — varName binding in _includes function', () => {

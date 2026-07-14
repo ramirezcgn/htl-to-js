@@ -409,6 +409,7 @@ function transpileNamedTemplates(
     for (const n of Object.keys(localTemplates)) ctx.definedVars.add(n);
     const templateDir = parseDirectives(node.attribs || {}, sourceDir);
     Object.assign(ctx.uses, templateDir.use);
+    Object.assign(ctx.useClass, templateDir.useClass || {});
     Object.assign(ctx.useDefaults, templateDir.useDefaults || {});
     Object.assign(ctx.fileUse, templateDir.fileUse);
     Object.assign(ctx.dynamicFileUse, templateDir.dynamicFileUse || {});
@@ -470,7 +471,7 @@ function transpileNamedTemplates(
           (params.includes(p) ? "''" : '{}'),
       }))
     );
-    const transformDecls = buildModelTransformDecls(ctx.uses, modelTransforms);
+    const transformDecls = buildModelTransformDecls(ctx.uses, modelTransforms, ctx.useClass);
     const contentIsEscapeHatch =
       ctx.refs.has('content') &&
       !('content' in ctx.uses) &&
@@ -575,7 +576,7 @@ function transpileSingleTemplate(
   addUseDefaultRefs(ctx.useDefaults, ctx.refs);
   addFreeVarParams(params, ctx);
 
-  const transformDecls = buildModelTransformDecls(ctx.uses, modelTransforms);
+  const transformDecls = buildModelTransformDecls(ctx.uses, modelTransforms, ctx.useClass);
   const paramStr = buildParamStr(params);
   const contentIsEscapeHatch =
     ctx.refs.has('content') &&
@@ -832,14 +833,16 @@ function classKeyMatchesUseVal(classKey: string, useVal: string): boolean {
  */
 function buildModelTransformDecls(
   uses: Record<string, string>,
-  modelTransforms: Record<string, Record<string, ModelTransformValue>>
+  modelTransforms: Record<string, Record<string, ModelTransformValue>>,
+  useClass: Record<string, string> = {}
 ): string {
   if (!Object.keys(modelTransforms).length) return '';
   const scopeVars = Object.keys(uses);
   const lines: string[] = [];
   for (const [varName, useVal] of Object.entries(uses)) {
+    const matchVal = useClass[varName] ?? String(useVal);
     for (const [classKey, props] of Object.entries(modelTransforms)) {
-      if (classKeyMatchesUseVal(classKey, String(useVal))) {
+      if (classKeyMatchesUseVal(classKey, matchVal)) {
         const resolve = (v: ModelTransformValue) =>
           resolveModelTransformValue(v, varName, scopeVars);
         const modelEntries = Object.entries(props).filter(

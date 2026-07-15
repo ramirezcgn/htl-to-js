@@ -2819,6 +2819,33 @@ describe('transpile — wrapperClass', () => {
     );
   });
 
+  it('suppresses the wrapper when _wrapperClass: false is passed at runtime', () => {
+    const src = `<p>inner</p>`;
+    const code = transpile(src, {
+      filename: '/apps/mysite/column/column.html',
+      wrapperClass: true,
+    });
+    const mod: any = {};
+    new Function('module', code)(mod);
+    const fn = strFn(Object.values(mod.exports)[0] as Function);
+    const html = fn({ _wrapperClass: false });
+    expect(html).toBe('<p>inner</p>');
+  });
+
+  it('_wrapperClass: false sets _hasOwnDecoration to false on the return value', () => {
+    const src = `<p>inner</p>`;
+    const code = transpile(src, {
+      filename: '/apps/mysite/column/column.html',
+      wrapperClass: true,
+    });
+    const mod: any = {};
+    new Function('module', code)(mod);
+    const fn = Object.values(mod.exports)[0] as Function;
+    const result = fn({ _wrapperClass: false });
+    expect(result._hasOwnDecoration).toBe(false);
+    expect(String(result)).toBe('<p>inner</p>');
+  });
+
   it('does not add wrapper when wrapperClass is false', () => {
     const src = `<p>hi</p>`;
     const code = transpile(src, { filename: 'test.html', wrapperClass: false });
@@ -5070,11 +5097,15 @@ describe('generateDts', () => {
       '     data-sly-call="${header.default @ title=model.title}">',
       '</sly>',
     ].join('\n');
-    const code = transpile(src, { filename: path.join(fixturesDir, 'test.html') });
+    const code = transpile(src, {
+      filename: path.join(fixturesDir, 'test.html'),
+    });
     const dts = generateDts(code);
     expect(dts).not.toContain("'./header.html'");
     // Falls back to the generic Record index signature
-    expect(dts).toContain('Record<string, string | (() => string) | undefined>');
+    expect(dts).toContain(
+      'Record<string, string | (() => string) | undefined>'
+    );
   });
 
   it('generates declarations for multiple named templates', () => {

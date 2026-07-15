@@ -471,7 +471,11 @@ function transpileNamedTemplates(
           (params.includes(p) ? "''" : '{}'),
       }))
     );
-    const transformDecls = buildModelTransformDecls(ctx.uses, modelTransforms, ctx.useClass);
+    const transformDecls = buildModelTransformDecls(
+      ctx.uses,
+      modelTransforms,
+      ctx.useClass
+    );
     const contentIsEscapeHatch =
       ctx.refs.has('content') &&
       !('content' in ctx.uses) &&
@@ -576,7 +580,11 @@ function transpileSingleTemplate(
   addUseDefaultRefs(ctx.useDefaults, ctx.refs);
   addFreeVarParams(params, ctx);
 
-  const transformDecls = buildModelTransformDecls(ctx.uses, modelTransforms, ctx.useClass);
+  const transformDecls = buildModelTransformDecls(
+    ctx.uses,
+    modelTransforms,
+    ctx.useClass
+  );
   const paramStr = buildParamStr(params);
   const contentIsEscapeHatch =
     ctx.refs.has('content') &&
@@ -693,6 +701,7 @@ function buildFunctionBody(
   if (meta._wrapperClass) {
     lines.push(
       `  const _html = /* html */\`${body.trim()}\`;`,
+      `  if (_wrapperClass === false) return { toString: () => _html, _class: ${JSON.stringify(meta._class)}, _resourceType: ${JSON.stringify(meta._resourceType)}, _slots: typeof __slots__ !== 'undefined' ? __slots__ : undefined, _hasOwnDecoration: false, _innerHtml: undefined, _decorationTagName: undefined, _attrs: {} };`,
       `  const _wrapClass = \`${meta._wrapperClass}\${_wrapperClass ? ' ' + _wrapperClass : ''}\`;`,
       `  return { toString: () => \`<div class="\${_wrapClass}">\${_html}</div>\`, _class: ${JSON.stringify(meta._class)}, _resourceType: ${JSON.stringify(meta._resourceType)}, _slots: typeof __slots__ !== 'undefined' ? __slots__ : undefined, _hasOwnDecoration: true, _innerHtml: _html, _decorationTagName: undefined, _attrs: {} };`,
       '};'

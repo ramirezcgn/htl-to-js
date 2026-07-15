@@ -50,11 +50,11 @@ const config = {
   async webpackFinal(config) {
     config.module.rules.push({
       test: /\.html$/,
-      include: /jcr_root[\\/]apps/,   // only AEM component HTML
+      include: /jcr_root[\\/]apps/, // only AEM component HTML
       use: require.resolve('htl-to-js/loader'),
     });
     return config;
-  }
+  },
 };
 
 export default config;
@@ -71,7 +71,7 @@ module.exports = {
       use: require.resolve('htl-to-js/loader'),
     });
     return config;
-  }
+  },
 };
 ```
 
@@ -96,43 +96,43 @@ Without this, Storybook throws _"Did you forget to return the HTML snippet from 
 
 ## HTL directive support
 
-| Directive | Behavior |
-|---|---|
-| `data-sly-use.name="..."` | Becomes a function parameter |
-| `data-sly-use.name="tpl-${expr}.html"` | Interpolated path — `require(\`./tpl-${expr}.html\`)` so Webpack can statically analyze and bundle all matching files |
-| `data-sly-test="${cond}"` | Conditional rendering via ternary |
-| `data-sly-test` (no value) | Always hides the element (equivalent to `data-sly-test="${false}"`) |
-| `data-sly-test.varName="${cond}"` | Conditional + assigns result to variable |
-| `data-sly-repeat.item="${list}"` | Loop: repeats the **whole element** per item |
-| `data-sly-list.item="${list}"` | Loop: outer tag rendered once, **inner content** repeated |
-| `data-sly-element="${expr}"` | Dynamic tag name (falls back to original tag) |
-| `data-sly-unwrap` / `data-sly-unwrap="${cond}"` | Strips wrapper tag (always or conditionally) |
-| `data-sly-set.varName="${expr}"` | Local variable declaration |
-| `data-sly-text="${expr}"` | Replaces element inner content with expression |
-| `data-sly-attribute.name="${expr}"` | Dynamic named attribute (null omits, true → valueless) |
-| `data-sly-attribute="${obj}"` | Object spread as multiple attributes |
-| `data-sly-template.name="${ @ params }"` | Named export function |
-| `data-sly-call="${tmpl @ p=v}"` | Invokes a template function |
-| `data-sly-resource="${expr}"` | Slot via `_includes` map |
-| `data-sly-include="./file.html"` | Auto-requires the file; `_includes` override takes priority |
-| `<sly>` | Transparent wrapper — only children are rendered |
+| Directive                                       | Behavior                                                                                                              |
+| ----------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| `data-sly-use.name="..."`                       | Becomes a function parameter                                                                                          |
+| `data-sly-use.name="tpl-${expr}.html"`          | Interpolated path — `require(\`./tpl-${expr}.html\`)` so Webpack can statically analyze and bundle all matching files |
+| `data-sly-test="${cond}"`                       | Conditional rendering via ternary                                                                                     |
+| `data-sly-test` (no value)                      | Always hides the element (equivalent to `data-sly-test="${false}"`)                                                   |
+| `data-sly-test.varName="${cond}"`               | Conditional + assigns result to variable                                                                              |
+| `data-sly-repeat.item="${list}"`                | Loop: repeats the **whole element** per item                                                                          |
+| `data-sly-list.item="${list}"`                  | Loop: outer tag rendered once, **inner content** repeated                                                             |
+| `data-sly-element="${expr}"`                    | Dynamic tag name (falls back to original tag)                                                                         |
+| `data-sly-unwrap` / `data-sly-unwrap="${cond}"` | Strips wrapper tag (always or conditionally)                                                                          |
+| `data-sly-set.varName="${expr}"`                | Local variable declaration                                                                                            |
+| `data-sly-text="${expr}"`                       | Replaces element inner content with expression                                                                        |
+| `data-sly-attribute.name="${expr}"`             | Dynamic named attribute (null omits, true → valueless)                                                                |
+| `data-sly-attribute="${obj}"`                   | Object spread as multiple attributes                                                                                  |
+| `data-sly-template.name="${ @ params }"`        | Named export function                                                                                                 |
+| `data-sly-call="${tmpl @ p=v}"`                 | Invokes a template function                                                                                           |
+| `data-sly-resource="${expr}"`                   | Slot via `_includes` map                                                                                              |
+| `data-sly-include="./file.html"`                | Auto-requires the file; `_includes` override takes priority                                                           |
+| `<sly>`                                         | Transparent wrapper — only children are rendered                                                                      |
 
 Both `data-sly-repeat` and `data-sly-list` support bare forms (without `.varName`) that default to `item` as the iteration variable. They also provide a `${itemList}` status object with `index`, `count`, `first`, `last`, `middle`, `odd`, and `even` properties.
 
 ### Expression conversions
 
-| HTL | Generated JS |
-|---|---|
-| `${expr @ context='html'}` | `${expr}` (context options stripped) |
-| `${expr @ context='urlencode'}` | `${encodeURIComponent(expr ?? '')}` (URL-encodes the value) |
-| `${expr @ context='uri'}` on any attribute | `${_htlUri(expr ?? '')}` (URI-encodes the value) |
-| `${expr @ context='number'}` | `${_htlNum(expr) ?? ''}` — converts to a numeric string; `null`/booleans/arrays/`NaN` produce an empty string |
-| `${'string' @ i18n}` | `${_i18n?.['string'] ?? 'string'}` (dictionary lookup) |
-| `${list.size}` | `${list.length}` |
-| `${obj.jcr:title}` | `${obj?.['jcr:title']}` |
-| `${tags @ join=', '}` | `${(tags).join(', ')}` |
-| `${'pattern {0}/{1}' @ format=[a, b]}` | `${a + '/' + b}` |
-| `${key in obj}` | `${_htlIn(key, obj)}` — string containment, array `.includes()`, or object key check |
+| HTL                                        | Generated JS                                                                                                  |
+| ------------------------------------------ | ------------------------------------------------------------------------------------------------------------- |
+| `${expr @ context='html'}`                 | `${expr}` (context options stripped)                                                                          |
+| `${expr @ context='urlencode'}`            | `${encodeURIComponent(expr ?? '')}` (URL-encodes the value)                                                   |
+| `${expr @ context='uri'}` on any attribute | `${_htlUri(expr ?? '')}` (URI-encodes the value)                                                              |
+| `${expr @ context='number'}`               | `${_htlNum(expr) ?? ''}` — converts to a numeric string; `null`/booleans/arrays/`NaN` produce an empty string |
+| `${'string' @ i18n}`                       | `${_i18n?.['string'] ?? 'string'}` (dictionary lookup)                                                        |
+| `${list.size}`                             | `${list.length}`                                                                                              |
+| `${obj.jcr:title}`                         | `${obj?.['jcr:title']}`                                                                                       |
+| `${tags @ join=', '}`                      | `${(tags).join(', ')}`                                                                                        |
+| `${'pattern {0}/{1}' @ format=[a, b]}`     | `${a + '/' + b}`                                                                                              |
+| `${key in obj}`                            | `${_htlIn(key, obj)}` — string containment, array `.includes()`, or object key check                          |
 
 ### Auto-URI context
 
@@ -147,17 +147,19 @@ When a dynamic expression appears in an attribute whose name is a URI attribute 
 Generated:
 
 ```js
-href="${_htlDynAttr('href', _htlUri(model?.url ?? ''))}"
+href = "${_htlDynAttr('href', _htlUri(model?.url ?? ''))}";
 ```
 
 ### HTML escaping
 
 Attribute values are automatically escaped via the `_htlAttr` helper:
+
 - `&` → `&amp;`, `<` → `&lt;`, `>` → `&gt;`, `"` → `&quot;`
 - Array and object values are serialized with `JSON.stringify` (quotes escaped to `&quot;`): `['a','b']` → `[&quot;a&quot;,&quot;b&quot;]`
 - `null`/`undefined` produce an empty string
 
 Dynamic named attributes (`data-sly-attribute.name`) use `_htlDynAttr`:
+
 - `null`/`false` → attribute omitted entirely
 - `true` → valueless boolean attribute (e.g. `disabled`)
 - Other values → `name="escaped-value"`
@@ -166,24 +168,24 @@ Dynamic named attributes (`data-sly-attribute.name`) use `_htlDynAttr`:
 
 The following AEM implicit objects are automatically detected and added as optional parameters with safe defaults:
 
-| Object | Default |
-|---|---|
-| `wcmmode` | `{ edit: false, disabled: true, preview: false }` |
-| `properties` | `{}` |
-| `pageProperties` | `{}` |
-| `inheritedPageProperties` | `{}` |
-| `component` | `{}` |
-| `currentDesign` | `{}` |
-| `currentStyle` | `{}` |
-| `currentPage` | `{}` |
-| `resource` | `{}` |
-| `model` | `{}` |
-| `_includes` | `{}` |
-| `_i18n` | `{}` |
-| `_wrapperClass` | `''` |
-| `_resourceWrappers` | `{}` |
-| `_resourceDecorations` | `{}` |
-| `request` | `{ requestPathInfo: { selectorString: '', suffix: '', resourcePath: '' }, contextPath: '' }` |
+| Object                    | Default                                                                                      |
+| ------------------------- | -------------------------------------------------------------------------------------------- |
+| `wcmmode`                 | `{ edit: false, disabled: true, preview: false }`                                            |
+| `properties`              | `{}`                                                                                         |
+| `pageProperties`          | `{}`                                                                                         |
+| `inheritedPageProperties` | `{}`                                                                                         |
+| `component`               | `{}`                                                                                         |
+| `currentDesign`           | `{}`                                                                                         |
+| `currentStyle`            | `{}`                                                                                         |
+| `currentPage`             | `{}`                                                                                         |
+| `resource`                | `{}`                                                                                         |
+| `model`                   | `{}`                                                                                         |
+| `_includes`               | `{}`                                                                                         |
+| `_i18n`                   | `{}`                                                                                         |
+| `_wrapperClass`           | `''`                                                                                         |
+| `_resourceWrappers`       | `{}`                                                                                         |
+| `_resourceDecorations`    | `{}`                                                                                         |
+| `request`                 | `{ requestPathInfo: { selectorString: '', suffix: '', resourcePath: '' }, contextPath: '' }` |
 
 Variables declared via `data-sly-use.X` are always included as parameters. Any other free variables referenced in directive expressions are also detected and added as parameters with `{}` defaults.
 
@@ -216,11 +218,15 @@ The following AEM author-mode and analytics attributes are stripped by default:
 Given `accordion.html`:
 
 ```html
-<div data-sly-use.accordion="com.example.Accordion"
-     class="cmp-accordion ${properties.theme}"
-     id="${accordion.id}">
-  <div data-sly-repeat.item="${accordion.items}"
-       data-sly-test="${accordion.items.size > 0}">
+<div
+  data-sly-use.accordion="com.example.Accordion"
+  class="cmp-accordion ${properties.theme}"
+  id="${accordion.id}"
+>
+  <div
+    data-sly-repeat.item="${accordion.items}"
+    data-sly-test="${accordion.items.size > 0}"
+  >
     <span>${item.title}</span>
   </div>
 </div>
@@ -259,10 +265,18 @@ Generates:
 
 ```js
 const createDefault = ({ model = {} } = {}) => {
-  const _html = /* html */`<a class="template" href="${_htlAttr(model?.url)}">
-    <h3>${(model?.title) ?? ''}</h3>
+  const _html = /* html */ `<a class="template" href="${_htlAttr(model?.url)}">
+    <h3>${model?.title ?? ''}</h3>
   </a>`;
-  return { toString: () => _html, _class: 'default', _resourceType: null, _slots: undefined, _hasOwnDecoration: false, _decorationTagName: undefined, _attrs: {} };
+  return {
+    toString: () => _html,
+    _class: 'default',
+    _resourceType: null,
+    _slots: undefined,
+    _hasOwnDecoration: false,
+    _decorationTagName: undefined,
+    _attrs: {},
+  };
 };
 module.exports = { createDefault };
 ```
@@ -296,27 +310,27 @@ ${_wrapResource('root/my/path', _includes, undefined, ...)}
 
 Pass content via `_includes` in your story args. Each slot value can be a string, function, array, or enriched component result — they all resolve to HTML:
 
-| slot value | result |
-|---|---|
-| `'string'` | rendered as-is |
-| `createXxx()` | rendered via `toString()` |
-| `() => 'string'` | function called, result rendered |
-| `() => createXxx()` | function called, enriched object rendered via `toString()` |
-| `['a', 'b']` | items joined: `'ab'` |
-| `[createText(), createImage()]` | each item rendered via `toString()`, joined |
-| `() => ['a', 'b']` | function called, array joined |
+| slot value                      | result                                                     |
+| ------------------------------- | ---------------------------------------------------------- |
+| `'string'`                      | rendered as-is                                             |
+| `createXxx()`                   | rendered via `toString()`                                  |
+| `() => 'string'`                | function called, result rendered                           |
+| `() => createXxx()`             | function called, enriched object rendered via `toString()` |
+| `['a', 'b']`                    | items joined: `'ab'`                                       |
+| `[createText(), createImage()]` | each item rendered via `toString()`, joined                |
+| `() => ['a', 'b']`              | function called, array joined                              |
 
 ```js
 export const Default = {
   args: {
     _includes: {
-      header: '<nav>Navigation</nav>',            // plain string
-      sidebar: () => createSidebar({ title: 'Menu' }),    // function
-      tags: ['<li>One</li>', '<li>Two</li>'],     // array — joined automatically
-      items: () => [createCard({ id: 1 }), createCard({ id: 2 })],  // function returning array
-    }
-  }
-}
+      header: '<nav>Navigation</nav>', // plain string
+      sidebar: () => createSidebar({ title: 'Menu' }), // function
+      tags: ['<li>One</li>', '<li>Two</li>'], // array — joined automatically
+      items: () => [createCard({ id: 1 }), createCard({ id: 2 })], // function returning array
+    },
+  },
+};
 ```
 
 #### Function parameters in `_includes` slots
@@ -349,7 +363,7 @@ const parentModel = { title: 'My Title' };
 createContainer({
   model: parentModel,
   _includes: {
-    header: () => createHeader({ title: parentModel.title }),  // close over parent data
+    header: () => createHeader({ title: parentModel.title }), // close over parent data
   },
 });
 ```
@@ -399,10 +413,14 @@ In AEM, components rendered via `data-sly-resource` are usually wrapped in a dec
 
 ```html
 <!-- HTL: explicit decoration tag and CSS class -->
-<sly data-sly-resource="${'item' @ decorationTagName='div', cssClassName='my-class'}"></sly>
+<sly
+  data-sly-resource="${'item' @ decorationTagName='div', cssClassName='my-class'}"
+></sly>
 
 <!-- HTL: decoration tag with automatic class from resourceType -->
-<sly data-sly-resource="${'item' @ decorationTagName='div', resourceType='mysite/components/image'}"></sly>
+<sly
+  data-sly-resource="${'item' @ decorationTagName='div', resourceType='mysite/components/image'}"
+></sly>
 ```
 
 When `decorationTagName` is set and the slot function's return value carries a `_class` property (which all transpiled `createXxx` functions provide), the decoration class is derived automatically in this order:
@@ -420,8 +438,8 @@ export const Default = {
   args: {
     _includes: {
       item: () => createImage({ src: '/img.jpg' }), // _class: 'image' propagates
-    }
-  }
+    },
+  },
 };
 // Renders: <div class="image"><img src="/img.jpg"></div>
 ```
@@ -448,8 +466,6 @@ args: {
 
 Set `decoration: false` to suppress the decoration tag even when `decorationTagName` is set in HTL.
 
-
-
 Use `generateDts` (or the `--dts` CLI flag) to emit a declaration file alongside the generated JS. When `__slots__` is present, `_includes` is typed with the known slot keys:
 
 ```ts
@@ -457,11 +473,19 @@ Use `generateDts` (or the `--dts` CLI flag) to emit a declaration file alongside
 export declare function createHeader(args?: {
   model?: any;
   _includes?: {
-    'hero'?: string | (() => string);
-    'footer'?: string | (() => string);
+    hero?: string | (() => string);
+    footer?: string | (() => string);
     [key: string]: string | (() => string) | undefined;
   };
-}): { toString(): string; _class: string; _resourceType: string | null; _slots: string[] | undefined; _hasOwnDecoration: boolean; _decorationTagName: undefined; _attrs: {} };
+}): {
+  toString(): string;
+  _class: string;
+  _resourceType: string | null;
+  _slots: string[] | undefined;
+  _hasOwnDecoration: boolean;
+  _decorationTagName: undefined;
+  _attrs: {};
+};
 export declare const __slots__: ['hero', 'footer'];
 ```
 
@@ -475,8 +499,10 @@ Calls a named template passing parameters. The binding declared via `data-sly-us
 
 ```html
 <!-- HTL -->
-<sly data-sly-use.template="default.html"
-     data-sly-call="${template.default @ model=item}"></sly>
+<sly
+  data-sly-use.template="default.html"
+  data-sly-call="${template.default @ model=item}"
+></sly>
 ```
 
 Generated:
@@ -489,7 +515,7 @@ Like `data-sly-include`, the generated code **checks `_includes` first** before 
 
 ```js
 // Story: override the file entirely via _includes
-fn({ _includes: { './default.html': '<span>Overridden</span>' } })
+fn({ _includes: { './default.html': '<span>Overridden</span>' } });
 ```
 
 When the host element is not `<sly>`, the call output is wrapped in that element:
@@ -511,8 +537,8 @@ export const Default = {
   args: {
     template: { default: createDefault },
     item: { title: 'Card Title', url: '/path' },
-  }
-}
+  },
+};
 ```
 
 ---
@@ -527,7 +553,7 @@ Includes another HTL file at runtime. The transpiler generates a `_fileSlot` cal
 This applies to **all** path forms: literal, composed (`appendPath`/`prependPath`), and dynamic expressions.
 
 Dynamic paths are wrapped in a template literal with a static `./` prefix
-(`` require(`./${...}`) ``) so webpack can statically analyze the request and
+(``require(`./${...}`)``) so webpack can statically analyze the request and
 **scope the dynamic-require context to the component directory** — it never
 climbs above `jcr_root`.
 
@@ -572,12 +598,12 @@ import { createHeader } from '../header.html';
 export const Default = {
   args: {
     _includes: {
-      './header.html': createHeader,               // overrides auto-require
+      './header.html': createHeader, // overrides auto-require
       './footer.html': () => '<footer>Footer</footer>',
       './banner.html': '<div class="banner">Static</div>', // plain string also works
-    }
-  }
-}
+    },
+  },
+};
 ```
 
 When no `_includes` slot is provided for a path, the file is required and its first exported function is called with the params from the HTL `@` options.
@@ -609,8 +635,8 @@ import dict from './i18n/es.json';
 export const Spanish = {
   args: {
     _i18n: dict,
-  }
-}
+  },
+};
 ```
 
 Example `i18n/es.json`:
@@ -657,7 +683,7 @@ When targeting a specific locale (e.g. `es_MX`), you can supply a chain of dicti
 **Programmatic API:**
 
 ```ts
-const primary  = parseI18nXml(fs.readFileSync('i18n/es_MX.xml', 'utf8'));
+const primary = parseI18nXml(fs.readFileSync('i18n/es_MX.xml', 'utf8'));
 const fallback = parseI18nXml(fs.readFileSync('i18n/es.xml', 'utf8'));
 
 const js = transpile(source, {
@@ -751,20 +777,23 @@ const js = transpile(source, { filename: 'accordion.html', i18nDict: dict });
 
 Both iterate over a list, but they differ in what gets repeated:
 
-| | `data-sly-repeat` | `data-sly-list` |
-|---|---|---|
-| **Repeats** | The entire host element | Only inner content |
-| **Outer tag** | Rendered once per item | Rendered once total |
+|               | `data-sly-repeat`       | `data-sly-list`     |
+| ------------- | ----------------------- | ------------------- |
+| **Repeats**   | The entire host element | Only inner content  |
+| **Outer tag** | Rendered once per item  | Rendered once total |
 
 ```html
 <!-- repeat: <li> repeated per item -->
 <li data-sly-repeat.item="${items}">${item}</li>
 
 <!-- list: <ul> once, <li> repeated per item -->
-<ul data-sly-list.item="${items}"><li>${item}</li></ul>
+<ul data-sly-list.item="${items}">
+  <li>${item}</li>
+</ul>
 ```
 
 Both support:
+
 - Null items are automatically skipped
 - A `${itemList}` status object with `index`, `count`, `first`, `last`, `middle`, `odd`, `even`
 - Combined `data-sly-test.var` + `data-sly-repeat` on the same element (test var is hoisted before the loop in a scoped IIFE)
@@ -775,22 +804,32 @@ Both directives accept `begin`, `end`, and `step` options to control which items
 
 ```html
 <!-- Skip the first item (begin is 0-based, inclusive) -->
-<ul data-sly-list.item="${items @ begin=1}"><li>${item}</li></ul>
+<ul data-sly-list.item="${items @ begin=1}">
+  <li>${item}</li>
+</ul>
 
 <!-- Stop after the second item (end is 0-based, inclusive) -->
-<ul data-sly-list.item="${items @ end=1}"><li>${item}</li></ul>
+<ul data-sly-list.item="${items @ end=1}">
+  <li>${item}</li>
+</ul>
 
 <!-- Every other item -->
-<ul data-sly-list.item="${items @ step=2}"><li>${item}</li></ul>
+<ul data-sly-list.item="${items @ step=2}">
+  <li>${item}</li>
+</ul>
 
 <!-- Combined -->
-<ul data-sly-list.item="${items @ begin=1, end=5, step=2}"><li>${item}</li></ul>
+<ul data-sly-list.item="${items @ begin=1, end=5, step=2}">
+  <li>${item}</li>
+</ul>
 ```
 
 Options can also be dynamic expressions:
 
 ```html
-<ul data-sly-list.item="${items @ begin=model.start, end=model.end}"><li>${item}</li></ul>
+<ul data-sly-list.item="${items @ begin=model.start, end=model.end}">
+  <li>${item}</li>
+</ul>
 ```
 
 ---
@@ -812,12 +851,9 @@ config.module.rules.push({
   use: {
     loader: require.resolve('htl-to-js/loader'),
     options: {
-      omitAttrs: [
-        /^data-cmp-data-layer$/,
-        /^data-my-custom-attr/,
-      ]
-    }
-  }
+      omitAttrs: [/^data-cmp-data-layer$/, /^data-my-custom-attr/],
+    },
+  },
 });
 ```
 
@@ -827,11 +863,11 @@ Pass `omitAttrs: []` to disable filtering entirely.
 
 Wraps the component output in a `<div>` with a CSS class, similar to how AEM wraps component markup.
 
-| Value | Behavior |
-|---|---|
-| `true` | Auto-derives the class from the parent folder name (e.g. `/apps/mysite/image/image.html` → `"image"`) |
-| `'custom classes'` | Uses the provided string as the class attribute |
-| `false` / omitted | No wrapper (default — backward compatible) |
+| Value              | Behavior                                                                                              |
+| ------------------ | ----------------------------------------------------------------------------------------------------- |
+| `true`             | Auto-derives the class from the parent folder name (e.g. `/apps/mysite/image/image.html` → `"image"`) |
+| `'custom classes'` | Uses the provided string as the class attribute                                                       |
+| `false` / omitted  | No wrapper (default — backward compatible)                                                            |
 
 ```js
 use: {
@@ -845,9 +881,20 @@ use: {
 At runtime, the generated function also accepts `_wrapperClass` to append extra classes to the wrapper. This is useful when a parent component (like a responsive grid) needs to inject layout classes into its children:
 
 ```js
-const html = createColumn({ _wrapperClass: 'aem-GridColumn aem-GridColumn--default--12' });
+const html = createColumn({
+  _wrapperClass: 'aem-GridColumn aem-GridColumn--default--12',
+});
 // → <div class="column aem-GridColumn aem-GridColumn--default--12">...</div>
 ```
+
+Pass `_wrapperClass: false` to suppress the wrapper entirely for a specific call — useful in stories or tests where you need the inner HTML without the decoration `<div>`:
+
+```js
+const html = createColumn({ _wrapperClass: false });
+// → <p>inner content</p>  (no wrapper div)
+```
+
+When `_wrapperClass: false` is used, the return value also has `_hasOwnDecoration: false`, so parent components using `data-sly-resource` will not attempt to strip a wrapper that is no longer present.
 
 ### `resourceWrappers`
 
@@ -856,6 +903,7 @@ Object mapping resource keys **or `resourceType` paths** to CSS classes (or conf
 HTL options on `data-sly-resource` are forwarded to the slot function, so wrappers can react to values such as `wcmmode` or `resourceType`-driven paths.
 
 Keys are matched in this order:
+
 1. **Resource name** — the value in the expression (e.g. `'par'` from `data-sly-resource="${'par' @ ...}"`)
 2. **`resourceType`** — the `@resourceType` option value (e.g. `'mysite/components/responsivegrid'`)
 
@@ -891,10 +939,10 @@ At runtime, the `_resourceWrappers` parameter can override or extend the static 
 
 Controls the module format of the generated code. Defaults to `'cjs'`.
 
-| Value | Output |
-|---|---|
+| Value             | Output                           |
+| ----------------- | -------------------------------- |
 | `'cjs'` (default) | `module.exports = { createFoo }` |
-| `'esm'` | `export { createFoo }` |
+| `'esm'`           | `export { createFoo }`           |
 
 ```ts
 const js = transpile(source, { filename: 'card.html', format: 'esm' });
@@ -927,7 +975,7 @@ Object mapping `data-sly-use` class-name patterns to property injections. Enable
 
 ```js
 const modelTransforms = {
-  'LayoutContainer': {
+  LayoutContainer: {
     layout: "'RESPONSIVE_GRID'",
   },
 };
@@ -939,7 +987,7 @@ Any component that uses `data-sly-use.x="com.example.LayoutContainer"` will get 
 
 ```js
 const modelTransforms = {
-  'LayoutContainer': {
+  LayoutContainer: {
     // Equivalent to the string form above
     layout: () => "'RESPONSIVE_GRID'",
 
@@ -980,7 +1028,6 @@ The supported destructured bindings are:
 
 The `_rest` fallback is rarely needed; the common pattern is to just destructure the model variable by name (as in the `Tabs` example above).
 
-
 **Special key `_includes`** — computes `_includes` slot entries from model data. Unlike regular keys (which are merged into the model object), `_includes` is assigned to the `_includes` parameter directly. Runtime `_includes` take precedence over computed ones.
 
 Because the callback is serialized and runs inside the generated function body, it has access to the model variable and all other component parameters:
@@ -988,25 +1035,32 @@ Because the callback is serialized and runs inside the generated function body, 
 ```js
 const modelTransforms = {
   // String expression — 'model' is replaced with the actual use-binding variable
-  'ColumnModel': {
-    _includes: "Object.fromEntries((model.columns || []).map((col, i) => [col.path, () => (model._content || [])[i] || '']))",
+  ColumnModel: {
+    _includes:
+      "Object.fromEntries((model.columns || []).map((col, i) => [col.path, () => (model._content || [])[i] || '']))",
   },
 
   // Direct callback — bindings are resolved at serialization time
-  'Tabs': {
-    _includes: ({ tabs }) =>          // 'tabs' matches the varName → the model variable
+  Tabs: {
+    _includes: (
+      { tabs } // 'tabs' matches the varName → the model variable
+    ) =>
       Object.fromEntries(
         (tabs?.children || tabs?.items || []).map((item) => [
           item.resource ?? item.id ?? item.name,
-          () => (typeof item.content === 'function' ? item.content() : (item.content || ''))
+          () =>
+            typeof item.content === 'function'
+              ? item.content()
+              : item.content || '',
         ])
       ),
   },
 
   // Access other component params via _rest
-  'ImageModel': {
-    _includes: ({ model, someOtherParam }) =>  // someOtherParam → _rest.someOtherParam
-      ({ image: model.imageHtml }),
+  ImageModel: {
+    _includes: (
+      { model, someOtherParam } // someOtherParam → _rest.someOtherParam
+    ) => ({ image: model.imageHtml }),
   },
 };
 ```
@@ -1017,20 +1071,20 @@ const modelTransforms = {
 
 ```js
 // function → called and routed to the first slot
-createContainer({ content: () => createText() })
+createContainer({ content: () => createText() });
 
 // array → same as _includes: { par: [...] }, distributes across par_0, par_1, …
 createContainer({
   content: [createText(), createImage()],
-})
+});
 
 // 2D array → inner arrays concatenate within each slot
 createContainer({
   content: [
-    [createText(), createImage()],  // → par_0
-    [createCard()],                  // → par_1
+    [createText(), createImage()], // → par_0
+    [createCard()], // → par_1
   ],
-})
+});
 
 // object → spread directly into _includes (explicit key routing)
 createContainer({
@@ -1038,7 +1092,7 @@ createContainer({
     header: () => createHeader({ title: model.title }),
     footer: () => createFooter(),
   }),
-})
+});
 ```
 
 Explicit `_includes` keys always take priority over `content`.
@@ -1053,13 +1107,14 @@ createContainer({
   model: { title: 'Hero' },
   content: ({ model }) => createHero({ title: model.title }),
   //         ^^^^^^^  the full parent props are available here
-})
+});
 
 // Useful for computing slot content from the model
 createContainer({
   model: { items: ['a', 'b', 'c'] },
-  content: ({ model }) => model.items.map(item => createCard({ label: item })),
-})
+  content: ({ model }) =>
+    model.items.map((item) => createCard({ label: item })),
+});
 ```
 
 This is why `content` as a story arg is useful for data-driven slot composition at runtime — when you need to pass data down from the story, `content` receives all the parent component's props automatically.
@@ -1072,12 +1127,15 @@ This is why `content` as a story arg is useful for data-driven slot composition 
 ```js
 // modelTransforms: compute _includes from model data at runtime inside the generated function
 const modelTransforms = {
-  'Tabs': {
+  Tabs: {
     _includes: ({ tabs }) =>
       Object.fromEntries(
         (tabs?.children || tabs?.items || []).map((item) => [
           item.resource ?? item.id ?? item.name,
-          () => (typeof item.content === 'function' ? item.content() : (item.content || ''))
+          () =>
+            typeof item.content === 'function'
+              ? item.content()
+              : item.content || '',
         ])
       ),
   },
@@ -1087,7 +1145,7 @@ const modelTransforms = {
 export const Default = {
   args: {
     content: () => createText({ text: 'Hello' }),
-  }
+  },
 };
 ```
 
@@ -1167,7 +1225,7 @@ const options = {
     },
   },
   modelTransforms: {
-    'LayoutContainer': {
+    LayoutContainer: {
       layout: "'RESPONSIVE_GRID'",
     },
   },
@@ -1186,13 +1244,19 @@ const options = {
 **Container HTL:**
 
 ```html
-<sly data-sly-use.container="com.adobe.cq.wcm.core.components.models.LayoutContainer">
-  <sly data-sly-test.responsive="${container.layout == 'RESPONSIVE_GRID'}"
-       data-sly-use.responsiveGridTemplate="responsiveGrid.html"
-       data-sly-call="${responsiveGridTemplate.responsiveGrid @ container=container}"></sly>
-  <sly data-sly-test="${!responsive}"
-       data-sly-use.simpleTemplate="simple.html"
-       data-sly-call="${simpleTemplate.simple @ container=container}"></sly>
+<sly
+  data-sly-use.container="com.adobe.cq.wcm.core.components.models.LayoutContainer"
+>
+  <sly
+    data-sly-test.responsive="${container.layout == 'RESPONSIVE_GRID'}"
+    data-sly-use.responsiveGridTemplate="responsiveGrid.html"
+    data-sly-call="${responsiveGridTemplate.responsiveGrid @ container=container}"
+  ></sly>
+  <sly
+    data-sly-test="${!responsive}"
+    data-sly-use.simpleTemplate="simple.html"
+    data-sly-call="${simpleTemplate.simple @ container=container}"
+  ></sly>
 </sly>
 ```
 
@@ -1209,21 +1273,26 @@ import { createContainer } from '../container/container.html';
 import { createColumn } from '../column/column.html';
 
 export const Default = {
-  render: () => createContainer({
-    _includes: {
-      content: () => createColumn(),
-    },
-  }),
+  render: () =>
+    createContainer({
+      _includes: {
+        content: () => createColumn(),
+      },
+    }),
 };
 ```
 
 **Rendered HTML:**
 
 ```html
-<div class="container">                                      <!-- wrapperClass -->
-  <div class="cmp-container">                                  <!-- from responsiveGrid.html htl template -->
-    <div class="aem-Grid aem-Grid--12 aem-Grid--default--12">  <!-- resourceWrappers.wrapper -->
-      <div class="cmp-column aem-GridColumn aem-GridColumn--default--12"> <!-- resourceWrappers.childClass -->
+<div class="container">
+  <!-- wrapperClass -->
+  <div class="cmp-container">
+    <!-- from responsiveGrid.html htl template -->
+    <div class="aem-Grid aem-Grid--12 aem-Grid--default--12">
+      <!-- resourceWrappers.wrapper -->
+      <div class="cmp-column aem-GridColumn aem-GridColumn--default--12">
+        <!-- resourceWrappers.childClass -->
         Sample Text
       </div>
     </div>
@@ -1233,12 +1302,12 @@ export const Default = {
 
 Each option has a single responsibility:
 
-| Option | Responsibility |
-|---|---|
-| `wrapperClass` | Component wrapper `<div>` with CSS class |
-| `resourceWrappers` | Wraps `data-sly-resource` output with grid/column divs |
-| `modelTransforms` | Model property defaults (e.g. `layout: 'RESPONSIVE_GRID'`) |
-| `fileOverrides` | Replaces `data-sly-use="file.html"` with inline HTL or JS expressions |
+| Option             | Responsibility                                                        |
+| ------------------ | --------------------------------------------------------------------- |
+| `wrapperClass`     | Component wrapper `<div>` with CSS class                              |
+| `resourceWrappers` | Wraps `data-sly-resource` output with grid/column divs                |
+| `modelTransforms`  | Model property defaults (e.g. `layout: 'RESPONSIVE_GRID'`)            |
+| `fileOverrides`    | Replaces `data-sly-use="file.html"` with inline HTL or JS expressions |
 
 ---
 
@@ -1252,10 +1321,10 @@ import fs from 'fs';
 const source = fs.readFileSync('accordion.html', 'utf8');
 const jsModule = transpile(source, {
   filename: 'accordion.html',
-  format: 'cjs',           // 'cjs' (default) | 'esm'
+  format: 'cjs', // 'cjs' (default) | 'esm'
   omitAttrs: [],
-  i18nDict: {},            // bake a dictionary into the module
-  i18nFallbackDicts: [],   // additional fallback dictionaries (lower priority)
+  i18nDict: {}, // bake a dictionary into the module
+  i18nFallbackDicts: [], // additional fallback dictionaries (lower priority)
 });
 
 console.log(jsModule);
@@ -1278,6 +1347,7 @@ npx htl-gen --watch "components/**/*.html"
 ```
 
 Output files are placed next to the source:
+
 ```
 accordion.html  →  accordion.template.js
                    accordion.template.d.ts

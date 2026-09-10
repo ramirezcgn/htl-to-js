@@ -88,7 +88,7 @@ export function htlPlugin(options: HtlVitePluginOptions = {}) {
       if (!id.startsWith(VIRTUAL_PREFIX)) return null;
       const filePath = id
         .slice(VIRTUAL_PREFIX.length)
-        .replace(/\.htl-js$/, '.html');
+        .replace(/\.htl-js$/, HTML_SUFFIX);
       const source = fs.readFileSync(filePath, 'utf8');
 
       let i18nDict: Record<string, string> | undefined;

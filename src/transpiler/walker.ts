@@ -83,7 +83,7 @@ function resolveFileRef(ctx: WalkerContext, filePath: string): string {
 
 // Like `webpackRequire`, but for `format: 'esm'` swaps a literal path over
 // to the same hoisted-import mechanism as `resolveFileRef`. Dynamic paths
-// are unaffected — they keep using `require()` (a known ESM limitation).
+// go through `resolveDynamicFileRef` instead (see below).
 function resolveIncludeRequire(ctx: WalkerContext, pathExpr: string): string {
   const e = pathExpr.trim();
   if (ctx.format === 'esm' && STATIC_STR_RE.test(e)) {
@@ -91,6 +91,45 @@ function resolveIncludeRequire(ctx: WalkerContext, pathExpr: string): string {
     return resolveFileRef(ctx, rawPath);
   }
   return webpackRequire(pathExpr);
+}
+
+// A path computed at runtime (e.g. `${model.bannerType}.html`) has no way to
+// know which file it'll resolve to ahead of time — but in practice these
+// always select between a handful of sibling files next to the current
+// component (a type-switch pattern), so every `.html` file in `sourceDir` is
+// eagerly imported once per module and looked up by the runtime-resolved
+// path string, instead of calling `require()` with a computed argument
+// (which has no synchronous ESM equivalent).
+function getDynModulesRef(ctx: WalkerContext): string {
+  const state = ctx.esmDynModules;
+  if (state.varName) return state.varName;
+
+  state.varName = '__htlDynModules';
+  if (ctx.sourceDir && fs.existsSync(ctx.sourceDir)) {
+    for (const entry of fs.readdirSync(ctx.sourceDir, {
+      withFileTypes: true,
+    })) {
+      if (!entry.isFile() || !entry.name.endsWith('.html')) continue;
+      const relPath = `./${entry.name}`;
+      let binding = ctx.esmFileImports.get(relPath);
+      if (!binding) {
+        binding = `_htlfile_${ctx.esmFileImports.size}`;
+        ctx.esmFileImports.set(relPath, binding);
+      }
+      state.entries.push(
+        `'${relPath}': ${binding}`,
+        `'${entry.name}': ${binding}`
+      );
+    }
+  }
+  return state.varName;
+}
+
+// Like `resolveFileRef`, but for a path only known at runtime. `pathExpr`
+// must be an expression that evaluates to the resolved path string (e.g.
+// the `_rp` binding already computed by the call site).
+function resolveDynamicFileRef(ctx: WalkerContext, pathExpr: string): string {
+  return `${getDynModulesRef(ctx)}[${pathExpr}]`;
 }
 
 export interface WalkerContext {
@@ -109,6 +148,7 @@ export interface WalkerContext {
   fileOverrides: Record<string, string>;
   format: 'cjs' | 'esm';
   esmFileImports: Map<string, string>;
+  esmDynModules: { varName: string | null; entries: string[] };
 }
 
 export function createContext(
@@ -116,7 +156,11 @@ export function createContext(
   sourceDir = '',
   fileOverrides: Record<string, string> = {},
   format: 'cjs' | 'esm' = 'cjs',
-  esmFileImports: Map<string, string> = new Map()
+  esmFileImports: Map<string, string> = new Map(),
+  esmDynModules: { varName: string | null; entries: string[] } = {
+    varName: null,
+    entries: [],
+  }
 ): WalkerContext {
   return {
     uses: {},
@@ -134,6 +178,7 @@ export function createContext(
     fileOverrides,
     format,
     esmFileImports,
+    esmDynModules,
   };
 }
 
@@ -289,6 +334,7 @@ function processElement(node: any, ctx: WalkerContext): string {
         fileOverrides: ctx.fileOverrides,
         format: ctx.format,
         esmFileImports: ctx.esmFileImports,
+        esmDynModules: ctx.esmDynModules,
       }
     : ctx;
 

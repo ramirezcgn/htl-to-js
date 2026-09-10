@@ -379,9 +379,12 @@ function processElement(node: any, ctx: WalkerContext): string {
             ? dynamicFilePath
             : `(() => { const _usePath = String(${dynamicFilePath} ?? ''); return _usePath.startsWith('/') || _usePath.startsWith('.') ? _usePath : './' + _usePath; })()`;
           const callParams = `{ ${paramsStr ? paramsStr + ', ' : ''}_includes }`;
-          const requireExpr = dynamicFilePath.startsWith('`')
-            ? webpackRequire(dynamicFilePath)
-            : webpackRequire('_rp');
+          const requireExpr =
+            ctx.format === 'esm'
+              ? resolveDynamicFileRef(ctx, '_rp')
+              : dynamicFilePath.startsWith('`')
+                ? webpackRequire(dynamicFilePath)
+                : webpackRequire('_rp');
           callContent = `\${((_rp) => _fileSlot(_includes, _rp, ${callParams}, () => ${requireExpr}.${jsFnName}?.({ ..._rest, ${extraParams} })))(${requirePath}) ?? ''}`;
         } else {
           const localFn = ctx.localTemplates[methodName];

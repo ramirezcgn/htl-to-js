@@ -404,13 +404,18 @@ function transpileNamedTemplates(
   const fnNames: string[] = [];
   const esmImportLines: string[] = [];
   const esmFileImports = new Map<string, string>();
+  const esmDynModules: { varName: string | null; entries: string[] } = {
+    varName: null,
+    entries: [],
+  };
   const parts = templates.map(({ name, params, node }) => {
     const ctx = createContext(
       omitAttrs,
       sourceDir,
       fileOverrides,
       format,
-      esmFileImports
+      esmFileImports,
+      esmDynModules
     );
     Object.assign(ctx.localTemplates, localTemplates);
     for (const n of Object.keys(localTemplates)) ctx.definedVars.add(n);
@@ -511,6 +516,11 @@ function transpileNamedTemplates(
   for (const [filePath, binding] of esmFileImports) {
     esmImportLines.push(`import * as ${binding} from '${filePath}';`);
   }
+  if (esmDynModules.varName) {
+    esmImportLines.push(
+      `const ${esmDynModules.varName} = { ${esmDynModules.entries.join(', ')} };`
+    );
+  }
   const prefix = esmImportLines.length ? esmImportLines.join('\n') + '\n' : '';
   const dynamicUsePathDecl = includeDynamicUsePathDecl
     ? buildDynamicUsePathDecl(sourceDir, usePathCaching)
@@ -607,6 +617,11 @@ function transpileSingleTemplate(
       : `\nmodule.exports = { ${fnName} };`;
   for (const [filePath, binding] of ctx.esmFileImports) {
     esmImportLines.push(`import * as ${binding} from '${filePath}';`);
+  }
+  if (ctx.esmDynModules.varName) {
+    esmImportLines.push(
+      `const ${ctx.esmDynModules.varName} = { ${ctx.esmDynModules.entries.join(', ')} };`
+    );
   }
   const prefix = esmImportLines.length ? esmImportLines.join('\n') + '\n' : '';
   const dynamicUsePathDecl = includeDynamicUsePathDecl

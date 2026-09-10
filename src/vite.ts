@@ -29,7 +29,9 @@ export interface HtlVitePluginOptions {
   usePathCaching?: boolean;
 }
 
+const HTML_TEST = /\.html$/;
 const HTML_SUFFIX = '.html';
+const VIRTUAL_PREFIX = '\0htl-to-js:';
 
 type MatchPattern = RegExp | string | (RegExp | string)[];
 
@@ -62,8 +64,32 @@ export function htlPlugin(options: HtlVitePluginOptions = {}) {
     name: 'htl-to-js',
     enforce: 'pre' as const,
 
-    transform(this: any, source: string, id: string) {
-      if (!shouldTransform(id)) return null;
+    resolveId(source: string, importer?: string) {
+      if (!source.split('?')[0].endsWith(HTML_SUFFIX)) return null;
+
+      const importerPath = importer?.startsWith(VIRTUAL_PREFIX)
+        ? importer.slice(VIRTUAL_PREFIX.length)
+        : importer;
+      const resolved = path.isAbsolute(source)
+        ? source
+        : path.resolve(
+            importerPath ? path.dirname(importerPath) : process.cwd(),
+            source
+          );
+
+      if (!shouldTransform(resolved) || !fs.existsSync(resolved)) return null;
+      // `id.endsWith('.html')` would still be true if we only prefixed the
+      // real path — swap the extension too so the virtual id no longer
+      // reads as HTML to Vite's own extension-sniffing plugins.
+      return VIRTUAL_PREFIX + resolved.replace(HTML_TEST, '.htl-js');
+    },
+
+    load(this: any, id: string) {
+      if (!id.startsWith(VIRTUAL_PREFIX)) return null;
+      const filePath = id
+        .slice(VIRTUAL_PREFIX.length)
+        .replace(/\.htl-js$/, '.html');
+      const source = fs.readFileSync(filePath, 'utf8');
 
       let i18nDict: Record<string, string> | undefined;
       if (i18nPath) {
@@ -97,7 +123,7 @@ export function htlPlugin(options: HtlVitePluginOptions = {}) {
 
       try {
         const code = transpile(source, {
-          filename: id,
+          filename: filePath,
           ...transpileOptions,
           i18nDict,
           i18nFallbackDicts,
@@ -106,7 +132,7 @@ export function htlPlugin(options: HtlVitePluginOptions = {}) {
         });
         return { code, map: null };
       } catch (err: any) {
-        this.error(new Error(`[htl-to-js] ${id}: ${err.message}`));
+        this.error(new Error(`[htl-to-js] ${filePath}: ${err.message}`));
       }
     },
 

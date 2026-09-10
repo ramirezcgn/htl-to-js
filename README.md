@@ -3,7 +3,7 @@
 [![npm version](https://img.shields.io/npm/v/htl-to-js.svg)](https://www.npmjs.com/package/htl-to-js)
 [![license](https://img.shields.io/npm/l/htl-to-js.svg)](./LICENSE)
 
-Webpack loader and CLI that transpiles AEM HTL (Sightly) templates into JavaScript functions returning template literals.
+Webpack loader, Vite plugin, and CLI that transpiles AEM HTL (Sightly) templates into JavaScript functions returning template literals.
 
 Each generated `createXxx` function returns an object that behaves as a string (via `toString()` / template literal coercion) and also carries component metadata:
 
@@ -91,6 +91,65 @@ export const decorators = [
 ```
 
 Without this, Storybook throws _"Did you forget to return the HTML snippet from the story?"_ even when the render function returns a valid enriched component result. The decorator lets stories stay as `render: (args) => createComponent(args)` without any extra wrapping.
+
+---
+
+## Vite setup
+
+Add the plugin in `vite.config.js` (or `vite.config.ts`):
+
+```js
+import { defineConfig } from 'vite';
+import { htlPlugin } from 'htl-to-js/vite';
+
+export default defineConfig({
+  plugins: [
+    htlPlugin({
+      include: /jcr_root[\\/]apps/, // only AEM component HTML
+    }),
+  ],
+});
+```
+
+`include` / `exclude` accept a `RegExp`, a string (matched via substring), or an array of either — every other option (`i18nPath`, `wrapperClass`, `resourceWrappers`, `modelTransforms`, `fileOverrides`, `omitAttrs`, `usePathCaching`, …) is the same as the [webpack loader's options](#options).
+
+The Vite plugin always emits **ESM** output — `format` is forced internally and cannot be overridden, since Rollup's `transform` hook expects ES module code back. `data-sly-use` references to local `.js`/`.json` files are emitted as `import` declarations rather than `require()` calls (see [`format`](#format)).
+
+### Storybook setup (Vite builder)
+
+If your Storybook uses `@storybook/builder-vite` (e.g. `@storybook/html-vite`, `@storybook/react-vite`), register the plugin in `viteFinal` inside `.storybook/main.js`:
+
+```js
+import { htlPlugin } from 'htl-to-js/vite';
+
+const config = {
+  // ...
+  async viteFinal(config) {
+    config.plugins ??= [];
+    config.plugins.push(
+      htlPlugin({
+        include: AEM_COMPONENTS, // absolute path to jcr_root/apps/.../components
+        i18nPath: I18N_PATH,
+        wrapperClass: true,
+        resourceWrappers: {
+          'anaplan/components/responsivegrid': {
+            wrapper: 'aem-Grid aem-Grid--12 aem-Grid--default--12',
+            childClass: 'aem-GridColumn aem-GridColumn--default--12',
+          },
+        },
+        modelTransforms,
+      })
+    );
+    return config;
+  },
+};
+
+export default config;
+```
+
+The [Storybook preview setup](#storybook-preview-setup) decorator above (coercing the enriched `createXxx` result via `toString()`) is still required — it's independent of which builder compiles the HTL files.
+
+Unlike the webpack loader, i18n XML files (`i18nPath` / `i18nFallbackPaths`) aren't part of Vite's module graph, so editing them while `vite dev`/`storybook dev` is running triggers a full page reload instead of a scoped HMR update — the generated component code itself still gets fast, targeted updates.
 
 ---
 
@@ -708,6 +767,18 @@ use: {
 }
 ```
 
+**Vite plugin (`i18nFallbackPaths` option):**
+
+```js
+htlPlugin({
+  i18nPath: path.resolve(__dirname, 'i18n/es_MX.xml'),
+  i18nFallbackPaths: [
+    path.resolve(__dirname, 'i18n/es.xml'),
+    path.resolve(__dirname, 'i18n/en.xml'),
+  ],
+});
+```
+
 **CLI — multiple `--i18n` flags (first = primary, rest = fallbacks):**
 
 ```bash
@@ -751,6 +822,16 @@ use: {
 ```
 
 The dictionary is baked into the generated module as the default value for `_i18n`. Webpack watches the XML file for changes in watch mode. Stories can still override `_i18n` at runtime to test other languages.
+
+**Vite plugin (`i18nPath` option):**
+
+```js
+htlPlugin({
+  i18nPath: path.resolve(__dirname, 'ui.i18n/es.xml'),
+});
+```
+
+The dictionary is baked in the same way. In `vite dev`/`storybook dev`, editing the XML file triggers a full reload rather than a scoped HMR update (see [Vite setup](#vite-setup)).
 
 **CLI (`--i18n` flag):**
 
@@ -836,7 +917,7 @@ Options can also be dynamic expressions:
 
 ## Options
 
-Both the `transpile()` function and the webpack loader accept the following options:
+The `transpile()` function, the webpack loader, and the [Vite plugin](#vite-setup) all accept the following options (the Vite plugin additionally takes `include`/`exclude`, and always forces `format: 'esm'` — see [`format`](#format)):
 
 ### `omitAttrs`
 
@@ -964,6 +1045,8 @@ npx htl-gen --esm "components/**/*.html"
 ```
 
 When `format: 'esm'` and `data-sly-use` references a local `.js` or `.json` file, the generated code emits `import` declarations instead of `require()` calls.
+
+The [Vite plugin](#vite-setup) always uses `format: 'esm'` — it is set internally and any `format` passed in options is ignored, since Rollup's `transform` hook must return ES module code.
 
 ---
 

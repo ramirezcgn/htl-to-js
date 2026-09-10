@@ -78,10 +78,26 @@ export function htlPlugin(options: HtlVitePluginOptions = {}) {
           );
 
       if (!shouldTransform(resolved) || !fs.existsSync(resolved)) return null;
-      // `id.endsWith('.html')` would still be true if we only prefixed the
-      // real path — swap the extension too so the virtual id no longer
-      // reads as HTML to Vite's own extension-sniffing plugins.
       return VIRTUAL_PREFIX + resolved.replace(HTML_TEST, '.htl-js');
+    },
+
+    config() {
+      const esbuildStubPlugin = {
+        name: 'htl-to-js-optimize-deps-stub',
+        setup(build: any) {
+          build.onLoad({ filter: /\.htl-js$/, namespace: 'html' }, () => ({
+            contents: 'module.exports = {};',
+            loader: 'js',
+          }));
+        },
+      };
+      return {
+        optimizeDeps: {
+          esbuildOptions: {
+            plugins: [esbuildStubPlugin],
+          },
+        },
+      };
     },
 
     load(this: any, id: string) {

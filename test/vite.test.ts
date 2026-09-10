@@ -48,8 +48,6 @@ describe('htlPlugin', () => {
     fs.writeFileSync(cardHtml, '<div>${model.title}</div>');
 
     brokenHtml = path.join(tmpDir, 'apps', 'mysite', 'broken', 'broken.html');
-    // Empty file — nothing forces a transpile failure via content alone, the
-    // error-path test below drives it a different way (invalid resolved id).
     fs.writeFileSync(brokenHtml, '<div>${model.title}</div>');
   });
 
@@ -105,9 +103,6 @@ describe('htlPlugin', () => {
     const plugin = htlPlugin();
     const importer = path.join(tmpDir, 'apps', 'mysite', 'card', 'index.js');
     const resolved = plugin.resolveId('./card.html', importer);
-    // Vite's own `vite:build-html` plugin reprocesses any id passing a raw
-    // `id.endsWith('.html')` check — the virtual id must fail that check,
-    // not just carry a `\0` prefix in front of the same trailing text.
     expect(resolved?.endsWith('.html')).toBe(false);
     expect(resolved).toBe(toVirtualId(cardHtml));
   });
@@ -135,10 +130,6 @@ describe('htlPlugin', () => {
   });
 
   it('on transpile error: reports via this.error() with the file path', () => {
-    // `fileOverrides` entries are processed unconditionally at the top of
-    // `transpile()`, so an invalid one reliably throws regardless of the
-    // main source content — a simpler, deterministic failure than trying
-    // to craft HTL the parser itself rejects.
     const plugin = htlPlugin({
       fileOverrides: {
         'missing-template.html': { htl: '<div>no template here</div>' },
@@ -149,5 +140,42 @@ describe('htlPlugin', () => {
       /broken\.html/
     );
     expect(ctx.errors).toHaveLength(1);
+  });
+
+  describe('config() — esbuild dependency-optimizer scan stub', () => {
+    function setupStub(plugin: ReturnType<typeof htlPlugin>) {
+      const config = (plugin as any).config();
+      const esbuildPlugin = config.optimizeDeps.esbuildOptions.plugins[0];
+      const onLoadHandlers: Array<{
+        options: { filter: RegExp; namespace?: string };
+        cb: (args?: any) => any;
+      }> = [];
+      esbuildPlugin.setup({
+        onLoad: (options: any, cb: any) => onLoadHandlers.push({ options, cb }),
+      });
+      return onLoadHandlers;
+    }
+
+    it('registers exactly one esbuild plugin under optimizeDeps.esbuildOptions', () => {
+      const plugin = htlPlugin();
+      const config = (plugin as any).config();
+      const plugins = config?.optimizeDeps?.esbuildOptions?.plugins;
+      expect(plugins).toHaveLength(1);
+      expect(plugins[0].name).toBe('htl-to-js-optimize-deps-stub');
+    });
+
+    it("registers onLoad for the same 'html' namespace Vite's own scan plugin uses", () => {
+      const plugin = htlPlugin();
+      const [{ options }] = setupStub(plugin);
+      expect(options.namespace).toBe('html');
+      expect(options.filter.test('/Users/x/card.htl-js')).toBe(true);
+      expect(options.filter.test('/Users/x/card.html')).toBe(false);
+    });
+
+    it('stubs a matching virtual id out as an empty CommonJS module', () => {
+      const plugin = htlPlugin();
+      const [{ cb }] = setupStub(plugin);
+      expect(cb()).toEqual({ contents: 'module.exports = {};', loader: 'js' });
+    });
   });
 });

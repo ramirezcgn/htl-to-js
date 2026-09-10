@@ -455,12 +455,19 @@ describe('transpile — data-sly-include', () => {
     expect(seen).not.toContain('.//header.html');
   });
 
-  it('ESM static include uses _fileSlot inline (no import * pre-population)', () => {
+  it('ESM static include hoists a real import instead of using require()', () => {
+    // require() has no synchronous ESM equivalent — a bundler running the
+    // generated module as real ESM (e.g. Vite/Rollup) would throw
+    // "require is not defined" at runtime if this fell back to require().
     const src = `<sly data-sly-include="./header.html"></sly>`;
-    const out = transpile(src, { filename: 'test.html', format: 'esm' });
+    const out = transpile(src, {
+      filename: path.join(fixturesDir, 'templates', 'test.html'),
+      format: 'esm',
+    });
     expect(out).toContain("_fileSlot(_includes, './header.html',");
-    expect(out).toContain("require('./header.html')");
-    expect(out).not.toContain('import * as _incauto');
+    expect(out).toContain("import * as _htlfile_0 from './header.html';");
+    expect(out).toContain('_htlfile_0');
+    expect(out).not.toContain("require('./header.html')");
   });
 
   it('handles dynamic include expressions', () => {
@@ -1160,7 +1167,7 @@ describe('transpile — data-sly-use + data-sly-call _includes override', () => 
       '</sly>',
     ].join('\n');
     const out = transpile(src, {
-      filename: path.join(fixturesDir, 'test.html'),
+      filename: path.join(fixturesDir, 'templates', 'test.html'),
     });
     // _fileSlot wraps both the _includes check and the require() fallback
     expect(out).toContain("_fileSlot(_includes, './header.html',");
@@ -1178,7 +1185,7 @@ describe('transpile — data-sly-use + data-sly-call _includes override', () => 
       '</sly>',
     ].join('\n');
     const out = transpile(src, {
-      filename: path.join(fixturesDir, 'test.html'),
+      filename: path.join(fixturesDir, 'templates', 'test.html'),
     });
     expect(out).toContain("_fileSlot(_includes, './header.html',");
     expect(out).toContain("require('./header.html')");
@@ -1202,11 +1209,11 @@ describe('transpile — data-sly-use + data-sly-call _includes override', () => 
   it('dynamic use+call: _includes check wraps the require(templateLiteral)', () => {
     // tabs-${model.tabsTemplate}.html — template literal dynamic path
     const src = fs.readFileSync(
-      path.join(fixturesDir, 'tabs-host.html'),
+      path.join(fixturesDir, 'templates', 'tabs-host.html'),
       'utf8'
     );
     const out = transpile(src, {
-      filename: path.join(fixturesDir, 'tabs-host.html'),
+      filename: path.join(fixturesDir, 'templates', 'tabs-host.html'),
     });
     // _fileSlot is used instead of inline ternary
     expect(out).toContain('_fileSlot(_includes,');
@@ -1221,11 +1228,11 @@ describe('transpile — data-sly-use + data-sly-call _includes override', () => 
     // tabs-${model.tabsTemplate}.html — the literal must be inlined inside
     // require() (not indirected through _rp) so webpack can scope the context.
     const src = fs.readFileSync(
-      path.join(fixturesDir, 'tabs-host.html'),
+      path.join(fixturesDir, 'templates', 'tabs-host.html'),
       'utf8'
     );
     const out = transpile(src, {
-      filename: path.join(fixturesDir, 'tabs-host.html'),
+      filename: path.join(fixturesDir, 'templates', 'tabs-host.html'),
     });
     expect(out).toContain('require(`./tabs-${');
     expect(out).not.toContain('require(_rp)');
@@ -1242,7 +1249,7 @@ describe('transpile — data-sly-use + data-sly-call _includes override', () => 
       '</sly>',
     ].join('\n');
     const out = transpile(src, {
-      filename: path.join(fixturesDir, 'test.html'),
+      filename: path.join(fixturesDir, 'templates', 'test.html'),
     });
     // The generated _contentArg block must NOT assign to _includes under the file path
     expect(out).not.toContain("'./header.html': _contentValue");
@@ -3882,7 +3889,7 @@ describe('transpile — fileOverrides', () => {
       '</sly>',
     ].join('\n');
     const code = transpile(src, {
-      filename: path.join(fixturesDir, 'tabs-host.html'),
+      filename: path.join(fixturesDir, 'templates', 'tabs-host.html'),
     });
     expect(code).toContain('require(');
     expect(code).toContain('tabs-');
@@ -3911,11 +3918,11 @@ describe('transpile — fileOverrides', () => {
 
   it('resolves interpolated html use paths from fixture files', () => {
     const src = fs.readFileSync(
-      path.join(fixturesDir, 'tabs-host.html'),
+      path.join(fixturesDir, 'templates', 'tabs-host.html'),
       'utf8'
     );
     const code = transpile(src, {
-      filename: path.join(fixturesDir, 'tabs-host.html'),
+      filename: path.join(fixturesDir, 'templates', 'tabs-host.html'),
     });
     expect(code).toContain('require(');
     expect(code).toContain('tabs-');
@@ -3923,7 +3930,10 @@ describe('transpile — fileOverrides', () => {
 
     const htmlAwareRequire = (id: string) => {
       if (id.endsWith('.html')) {
-        const resolvedPath = path.resolve(fixturesDir, id);
+        const resolvedPath = path.resolve(
+          path.join(fixturesDir, 'templates'),
+          id
+        );
         const htmlSrc = fs.readFileSync(resolvedPath, 'utf8');
         const transpiled = transpile(htmlSrc, { filename: resolvedPath });
         const m: any = {};
@@ -5098,7 +5108,7 @@ describe('generateDts', () => {
       '</sly>',
     ].join('\n');
     const code = transpile(src, {
-      filename: path.join(fixturesDir, 'test.html'),
+      filename: path.join(fixturesDir, 'templates', 'test.html'),
     });
     const dts = generateDts(code);
     expect(dts).not.toContain("'./header.html'");
@@ -5901,6 +5911,92 @@ describe('transpile — ESM output', () => {
     expect(code).toMatch(/typeof\s+\S+\s*===\s*'function'/);
   });
 
+  it('does not emit require() for a file-based data-sly-use + data-sly-call in ESM mode', () => {
+    // Matches the common AEM pattern of switching on a type and calling a
+    // named template from another file, e.g.:
+    //   <sly data-sly-use.tpl="templates/foo.html" data-sly-call="${tpl.foo @ ...}">
+    const src = `<div data-sly-use.tpl="./header.html" data-sly-call="${'$'}{tpl.default @ title='Hi'}"></div>`;
+    const code = transpile(src, {
+      filename: path.join(fixturesDir, 'templates', 'test.html'),
+      format: 'esm',
+    });
+    expect(code).not.toContain("require('./header.html')");
+    expect(code).toMatch(/import \* as \S+ from '\.\/header\.html';/);
+  });
+
+  it('dedupes repeated file-based data-sly-call imports to the same file', () => {
+    const src = `
+      <sly data-sly-use.a="./header.html" data-sly-call="${'$'}{a.default @ title='A'}"></sly>
+      <sly data-sly-use.b="./header.html" data-sly-call="${'$'}{b.default @ title='B'}"></sly>
+    `;
+    const code = transpile(src, {
+      filename: path.join(fixturesDir, 'templates', 'test.html'),
+      format: 'esm',
+    });
+    const importLines = code
+      .split('\n')
+      .filter((l) => l.includes("from './header.html'"));
+    expect(importLines).toHaveLength(1);
+  });
+
+  it('normalizes a data-sly-include path with no leading ./ to a real relative import', () => {
+    // data-sly-include keeps the HTL attribute's literal text as-is (unlike
+    // data-sly-use, which resolveCandidatePath always prefixes with './') —
+    // a bundler's ESM resolver would otherwise treat "templates/x.html" as
+    // a bare package specifier instead of a relative file.
+    const src = `<sly data-sly-include="templates/fullsearch.html"></sly>`;
+    const code = transpile(src, {
+      filename: path.join(fixturesDir, 'test.html'),
+      format: 'esm',
+    });
+    expect(code).toMatch(
+      /import \* as \S+ from '\.\/templates\/fullsearch\.html';/
+    );
+    expect(code).not.toContain("require('templates/fullsearch.html')");
+  });
+
+  it('falls back to require() in ESM mode for a static include whose target file does not exist', () => {
+    // A dead reference (renamed/removed target, never updated in the HTL)
+    // must not turn into an unresolvable static import that hard-fails the
+    // whole bundler build — require() only fails at runtime if that branch
+    // actually executes, and _fileSlot already wraps it in a try/catch.
+    const src = `<sly data-sly-include="templates/does-not-exist.html"></sly>`;
+    const code = transpile(src, {
+      filename: path.join(fixturesDir, 'test.html'),
+      format: 'esm',
+    });
+    expect(code).toContain("require('templates/does-not-exist.html')");
+    expect(code).not.toContain('import *');
+  });
+
+  it('resolves a dynamic data-sly-call (tabs-${model.tabsTemplate}.html) via eager sibling imports in ESM mode', () => {
+    // The target filename is only known at runtime, but in practice it
+    // always selects among a handful of sibling files next to the current
+    // component — those get eagerly imported once, keyed by filename,
+    // instead of calling require() with a computed argument.
+    const src = fs.readFileSync(
+      path.join(fixturesDir, 'templates', 'tabs-host.html'),
+      'utf8'
+    );
+    const code = transpile(src, {
+      filename: path.join(fixturesDir, 'templates', 'tabs-host.html'),
+      format: 'esm',
+    });
+    expect(code).toMatch(/import \* as \S+ from '\.\/tabs-vertical\.html';/);
+    expect(code).toContain('__htlDynModules');
+    expect(code).toContain("'./tabs-vertical.html':");
+    expect(code).not.toContain('require(');
+  });
+
+  it('still uses require() for the same file-based data-sly-call pattern in CJS mode (no regression)', () => {
+    const src = `<div data-sly-use.tpl="./header.html" data-sly-call="${'$'}{tpl.default @ title='Hi'}"></div>`;
+    const code = transpile(src, {
+      filename: path.join(fixturesDir, 'templates', 'test.html'),
+    });
+    expect(code).toContain("require('./header.html')");
+    expect(code).not.toContain('import *');
+  });
+
   it('defaults to CJS output when format is not specified', () => {
     const src = `<div>${'$'}{model.title}</div>`;
     const code = transpile(src, { filename: 'test.html' });
@@ -6341,16 +6437,16 @@ describe('transpile — _rest pass-through for sub-model injection', () => {
     // Same scenario but using a real file on disk (tabs fixture) to prove
     // _rest flows correctly through require()-based calls too.
     const hostSrc = fs.readFileSync(
-      path.join(fixturesDir, 'tabs-host.html'),
+      path.join(fixturesDir, 'templates', 'tabs-host.html'),
       'utf8'
     );
     const code = transpile(hostSrc, {
-      filename: path.join(fixturesDir, 'tabs-host.html'),
+      filename: path.join(fixturesDir, 'templates', 'tabs-host.html'),
     });
 
     const htmlAwareRequire = (id: string) => {
       if (id.endsWith('.html')) {
-        const resolved = path.resolve(fixturesDir, id);
+        const resolved = path.resolve(path.join(fixturesDir, 'templates'), id);
         const src = fs.readFileSync(resolved, 'utf8');
         const transpiled = transpile(src, { filename: resolved });
         const m: any = {};

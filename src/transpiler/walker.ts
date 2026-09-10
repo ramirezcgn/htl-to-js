@@ -1,5 +1,7 @@
 import { parseDirectives } from './directives';
 import type { Directives, SetDecl } from './directives';
+import fs from 'node:fs';
+import path from 'node:path';
 import {
   convertExpr,
   convertAttrValue,
@@ -48,6 +50,49 @@ const webpackRequire = (pathExpr: string): string => {
   return `require(\`./\${String(${pathExpr} ?? '').replace(/^\\.?\\/+/, '')}\`)`;
 };
 
+// `require()` has no synchronous ESM equivalent, so under `format: 'esm'` a
+// statically-known (literal) file path is hoisted into a real top-level
+// `import * as _htlfile_N from '...'` (collected in `ctx.esmFileImports` and
+// emitted by the caller in transpiler/index.ts) instead of calling
+// `require()` at runtime. Only literal paths can do this — a path computed
+// at runtime has no ESM equivalent and still falls back to `require()`.
+function resolveFileRef(ctx: WalkerContext, filePath: string): string {
+  if (ctx.format !== 'esm') return `require('${filePath}')`;
+  // data-sly-use paths are already normalized with a leading `./` (see
+  // resolveCandidatePath in directives.ts), but data-sly-include takes the
+  // HTL attribute's literal text as-is. A bundler's ESM resolver treats a
+  // path without a leading `.`/`/` as a bare package specifier rather than
+  // a relative file, so normalize it here for the import specifier only —
+  // require() is untouched by this and keeps resolving exactly as before.
+  const importPath = /^[./]/.test(filePath) ? filePath : `./${filePath}`;
+  // A dead reference (file renamed/removed but the HTL never updated) would
+  // otherwise turn into an unresolvable static import and hard-fail the
+  // whole bundler build. require() only fails at runtime when that branch
+  // actually executes — and _fileSlot's fallback already wraps it in a
+  // try/catch — so preserve that fail-soft behavior for missing files.
+  if (!fs.existsSync(path.resolve(ctx.sourceDir, importPath))) {
+    return `require('${filePath}')`;
+  }
+  let binding = ctx.esmFileImports.get(importPath);
+  if (!binding) {
+    binding = `_htlfile_${ctx.esmFileImports.size}`;
+    ctx.esmFileImports.set(importPath, binding);
+  }
+  return binding;
+}
+
+// Like `webpackRequire`, but for `format: 'esm'` swaps a literal path over
+// to the same hoisted-import mechanism as `resolveFileRef`. Dynamic paths
+// are unaffected — they keep using `require()` (a known ESM limitation).
+function resolveIncludeRequire(ctx: WalkerContext, pathExpr: string): string {
+  const e = pathExpr.trim();
+  if (ctx.format === 'esm' && STATIC_STR_RE.test(e)) {
+    const rawPath = e.slice(1, -1).replace(/\\'/g, "'");
+    return resolveFileRef(ctx, rawPath);
+  }
+  return webpackRequire(pathExpr);
+}
+
 export interface WalkerContext {
   uses: Record<string, string>;
   useClass: Record<string, string>;
@@ -62,12 +107,16 @@ export interface WalkerContext {
   definedVars: Set<string>;
   localTemplates: Record<string, string>;
   fileOverrides: Record<string, string>;
+  format: 'cjs' | 'esm';
+  esmFileImports: Map<string, string>;
 }
 
 export function createContext(
   omitAttrs: RegExp[] = [],
   sourceDir = '',
-  fileOverrides: Record<string, string> = {}
+  fileOverrides: Record<string, string> = {},
+  format: 'cjs' | 'esm' = 'cjs',
+  esmFileImports: Map<string, string> = new Map()
 ): WalkerContext {
   return {
     uses: {},
@@ -83,6 +132,8 @@ export function createContext(
     definedVars: new Set(),
     localTemplates: {},
     fileOverrides,
+    format,
+    esmFileImports,
   };
 }
 
@@ -236,6 +287,8 @@ function processElement(node: any, ctx: WalkerContext): string {
         definedVars: ctx.definedVars,
         localTemplates: ctx.localTemplates,
         fileOverrides: ctx.fileOverrides,
+        format: ctx.format,
+        esmFileImports: ctx.esmFileImports,
       }
     : ctx;
 
@@ -268,7 +321,7 @@ function processElement(node: any, ctx: WalkerContext): string {
           'create' + methodName.charAt(0).toUpperCase() + methodName.slice(1);
         const extraParams = buildExtraParams(paramsStr);
         const callParams = `{ ${paramsStr ? paramsStr + ', ' : ''}_includes }`;
-        callContent = `\${_fileSlot(_includes, '${filePath}', ${callParams}, () => require('${filePath}').${jsFnName}?.({ ..._rest, ${extraParams} })) ?? ''}`;
+        callContent = `\${_fileSlot(_includes, '${filePath}', ${callParams}, () => ${resolveFileRef(ctx, filePath)}.${jsFnName}?.({ ..._rest, ${extraParams} })) ?? ''}`;
       } else {
         const dynamicFilePath =
           dir.dynamicFileUse?.[callObjName] || ctx.dynamicFileUse[callObjName];
@@ -317,7 +370,7 @@ function processElement(node: any, ctx: WalkerContext): string {
     const includeParams = formatCallParams(dir.include.params);
     const p = dir.include.path;
     const paramsArg = includeParams === 'undefined' ? '{}' : includeParams;
-    const includeExpr = `_fileSlot(_includes, ${p}, ${paramsArg}, () => { try { const _m = ${webpackRequire(p)}; const _fn = Object.values(_m).find(f => typeof f === 'function'); return _fn ? _arrJoin(_fn(${paramsArg})) : ''; } catch (_e) { console.warn('[htl-to-js] data-sly-include failed for', ${p}, '— pass an _includes slot to override:', _e && _e.message ? _e.message : _e); return ''; } })`;
+    const includeExpr = `_fileSlot(_includes, ${p}, ${paramsArg}, () => { try { const _m = ${resolveIncludeRequire(ctx, p)}; const _fn = Object.values(_m).find(f => typeof f === 'function'); return _fn ? _arrJoin(_fn(${paramsArg})) : ''; } catch (_e) { console.warn('[htl-to-js] data-sly-include failed for', ${p}, '— pass an _includes slot to override:', _e && _e.message ? _e.message : _e); return ''; } })`;
     return applyTest(dir.test, `\${${includeExpr}}`);
   }
 

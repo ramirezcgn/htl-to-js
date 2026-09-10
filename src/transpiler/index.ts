@@ -403,8 +403,15 @@ function transpileNamedTemplates(
   );
   const fnNames: string[] = [];
   const esmImportLines: string[] = [];
+  const esmFileImports = new Map<string, string>();
   const parts = templates.map(({ name, params, node }) => {
-    const ctx = createContext(omitAttrs, sourceDir, fileOverrides);
+    const ctx = createContext(
+      omitAttrs,
+      sourceDir,
+      fileOverrides,
+      format,
+      esmFileImports
+    );
     Object.assign(ctx.localTemplates, localTemplates);
     for (const n of Object.keys(localTemplates)) ctx.definedVars.add(n);
     const templateDir = parseDirectives(node.attribs || {}, sourceDir);
@@ -501,6 +508,9 @@ function transpileNamedTemplates(
       ? `export { ${fnNames.join(', ')} };`
       : `module.exports = { ${fnNames.join(', ')} };`;
   parts.push(exportLine);
+  for (const [filePath, binding] of esmFileImports) {
+    esmImportLines.push(`import * as ${binding} from '${filePath}';`);
+  }
   const prefix = esmImportLines.length ? esmImportLines.join('\n') + '\n' : '';
   const dynamicUsePathDecl = includeDynamicUsePathDecl
     ? buildDynamicUsePathDecl(sourceDir, usePathCaching)
@@ -530,7 +540,7 @@ function transpileSingleTemplate(
   const implicits = i18nDefault
     ? { ...AEM_IMPLICITS, _i18n: i18nDefault }
     : AEM_IMPLICITS;
-  const ctx = createContext(omitAttrs, sourceDir, fileOverrides);
+  const ctx = createContext(omitAttrs, sourceDir, fileOverrides, format);
   let body = walkNodes(document.children, ctx);
   const fnName = toPascalFnName('create', deriveBaseName(filename));
 
@@ -595,6 +605,9 @@ function transpileSingleTemplate(
     format === 'esm'
       ? `\nexport { ${fnName} };`
       : `\nmodule.exports = { ${fnName} };`;
+  for (const [filePath, binding] of ctx.esmFileImports) {
+    esmImportLines.push(`import * as ${binding} from '${filePath}';`);
+  }
   const prefix = esmImportLines.length ? esmImportLines.join('\n') + '\n' : '';
   const dynamicUsePathDecl = includeDynamicUsePathDecl
     ? buildDynamicUsePathDecl(sourceDir, usePathCaching)

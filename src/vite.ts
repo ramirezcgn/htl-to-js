@@ -33,6 +33,19 @@ const HTML_TEST = /\.html$/;
 const HTML_SUFFIX = '.html';
 const VIRTUAL_PREFIX = '\0htl-to-js:';
 
+// Vite 8+ optimizes deps with Rolldown and deprecated `optimizeDeps.esbuildOptions`
+// in favor of `optimizeDeps.rolldownOptions`. Older Vite majors only understand the
+// esbuild-shaped option, so pick the field to emit based on the consumer's Vite version.
+function supportsRolldownOptimizeDeps(): boolean {
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const { version } = require('vite/package.json');
+    return Number.parseInt(version, 10) >= 8;
+  } catch {
+    return false;
+  }
+}
+
 type MatchPattern = RegExp | string | (RegExp | string)[];
 
 function toMatcher(pattern?: MatchPattern): ((id: string) => boolean) | null {
@@ -82,6 +95,30 @@ export function htlPlugin(options: HtlVitePluginOptions = {}) {
     },
 
     config() {
+      if (supportsRolldownOptimizeDeps()) {
+        const rolldownStubPlugin = {
+          name: 'htl-to-js-optimize-deps-stub',
+          load(id: string) {
+            const namespaceIndex = id.indexOf(':');
+            const namespace =
+              namespaceIndex >= 0 ? id.slice(0, namespaceIndex) : 'file';
+            const idPath =
+              namespaceIndex >= 0 ? id.slice(namespaceIndex + 1) : id;
+            if (namespace !== 'html' || !idPath.endsWith('.htl-js')) {
+              return null;
+            }
+            return 'module.exports = {};';
+          },
+        };
+        return {
+          optimizeDeps: {
+            rolldownOptions: {
+              plugins: [rolldownStubPlugin],
+            },
+          },
+        };
+      }
+
       const esbuildStubPlugin = {
         name: 'htl-to-js-optimize-deps-stub',
         setup(build: any) {

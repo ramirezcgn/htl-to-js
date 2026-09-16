@@ -178,4 +178,46 @@ describe('htlPlugin', () => {
       expect(cb()).toEqual({ contents: 'module.exports = {};', loader: 'js' });
     });
   });
+
+  describe('config() — Vite 8+ Rolldown dependency-optimizer scan stub', () => {
+    afterEach(() => {
+      jest.dontMock('vite/package.json');
+      jest.resetModules();
+    });
+
+    function loadPluginWithViteVersion(version: string) {
+      jest.doMock('vite/package.json', () => ({ version }), { virtual: true });
+      jest.resetModules();
+      // eslint-disable-next-line @typescript-eslint/no-var-requires
+      return require('../src/vite').htlPlugin;
+    }
+
+    it('registers under optimizeDeps.rolldownOptions on Vite 8+', () => {
+      const htlPluginWithVite8 = loadPluginWithViteVersion('8.1.0');
+      const plugin = htlPluginWithVite8();
+      const config = (plugin as any).config();
+      const plugins = config?.optimizeDeps?.rolldownOptions?.plugins;
+      expect(config.optimizeDeps.esbuildOptions).toBeUndefined();
+      expect(plugins).toHaveLength(1);
+      expect(plugins[0].name).toBe('htl-to-js-optimize-deps-stub');
+    });
+
+    it('still registers under optimizeDeps.esbuildOptions on pre-8 Vite', () => {
+      const htlPluginWithVite7 = loadPluginWithViteVersion('7.4.0');
+      const plugin = htlPluginWithVite7();
+      const config = (plugin as any).config();
+      expect(config.optimizeDeps.rolldownOptions).toBeUndefined();
+      expect(config.optimizeDeps.esbuildOptions.plugins).toHaveLength(1);
+    });
+
+    it('stubs a matching virtual id under the html namespace and ignores others', () => {
+      const htlPluginWithVite8 = loadPluginWithViteVersion('8.1.0');
+      const plugin = htlPluginWithVite8();
+      const config = (plugin as any).config();
+      const { load } = config.optimizeDeps.rolldownOptions.plugins[0];
+      expect(load('html:/Users/x/card.htl-js')).toBe('module.exports = {};');
+      expect(load('/Users/x/card.htl-js')).toBeNull();
+      expect(load('html:/Users/x/card.html')).toBeNull();
+    });
+  });
 });

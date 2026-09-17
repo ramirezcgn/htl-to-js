@@ -142,6 +142,7 @@ export function htlPlugin(options: HtlVitePluginOptions = {}) {
       const filePath = id
         .slice(VIRTUAL_PREFIX.length)
         .replace(/\.htl-js$/, HTML_SUFFIX);
+      this.addWatchFile(filePath);
       const source = fs.readFileSync(filePath, 'utf8');
 
       let i18nDict: Record<string, string> | undefined;
@@ -193,10 +194,24 @@ export function htlPlugin(options: HtlVitePluginOptions = {}) {
     // plain addWatchFile won't trigger HMR for them while `vite dev` is
     // running — reload manually when they change.
     configureServer(server: any) {
-      if (!watchPaths.length) return;
-      server.watcher.add(watchPaths);
+      const includeDirs = (
+        Array.isArray(include) ? include : include ? [include] : []
+      ).filter((p) => typeof p === 'string');
+      if (includeDirs.length) server.watcher.add(includeDirs);
+      if (watchPaths.length) server.watcher.add(watchPaths);
       server.watcher.on('change', (file: string) => {
-        if (watchPaths.includes(path.resolve(file))) {
+        const resolvedFile = path.resolve(file);
+        if (watchPaths.includes(resolvedFile)) {
+          server.ws.send({ type: 'full-reload' });
+          return;
+        }
+        if (shouldTransform(resolvedFile)) {
+          const virtualId =
+            VIRTUAL_PREFIX + resolvedFile.replace(HTML_TEST, '.htl-js');
+          const mod = server.moduleGraph.getModuleById(virtualId);
+          if (mod) {
+            server.moduleGraph.invalidateModule(mod);
+          }
           server.ws.send({ type: 'full-reload' });
         }
       });

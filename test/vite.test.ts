@@ -142,6 +142,150 @@ describe('htlPlugin', () => {
     expect(ctx.errors).toHaveLength(1);
   });
 
+  it('load watches the source .html file itself, so Vite knows the virtual module depends on it', () => {
+    const plugin = htlPlugin();
+    const ctx = makeCtx();
+    plugin.load.call(ctx, toVirtualId(cardHtml));
+    expect(ctx.watched).toContain(cardHtml);
+  });
+
+  describe('configureServer() — HMR for .html source changes', () => {
+    // Build a minimal fake Vite dev server.
+    function makeServer() {
+      const watcherAdds: unknown[] = [];
+      const changeHandlers: Array<(file: string) => void> = [];
+      const wsMessages: unknown[] = [];
+      const invalidated: unknown[] = [];
+      const modules = new Map<string, unknown>();
+      return {
+        watcher: {
+          add: (paths: unknown) => watcherAdds.push(paths),
+          on: (event: string, cb: (file: string) => void) => {
+            if (event === 'change') changeHandlers.push(cb);
+          },
+        },
+        moduleGraph: {
+          getModuleById: (id: string) => modules.get(id),
+          invalidateModule: (mod: unknown) => invalidated.push(mod),
+        },
+        ws: { send: (msg: unknown) => wsMessages.push(msg) },
+        setModule(id: string, mod: unknown) {
+          modules.set(id, mod);
+        },
+        fireChange(file: string) {
+          changeHandlers.forEach((cb) => cb(file));
+        },
+        get watcherAdds() {
+          return watcherAdds;
+        },
+        get wsMessages() {
+          return wsMessages;
+        },
+        get invalidated() {
+          return invalidated;
+        },
+      };
+    }
+
+    it('invalidates the matching virtual module and full-reloads when its .html source changes', () => {
+      const plugin = htlPlugin();
+      const server = makeServer();
+      const virtualId = toVirtualId(cardHtml);
+      const fakeMod = { id: virtualId };
+      server.setModule(virtualId, fakeMod);
+
+      plugin.configureServer(server);
+      server.fireChange(cardHtml);
+
+      expect(server.invalidated).toEqual([fakeMod]);
+      expect(server.wsMessages).toEqual([{ type: 'full-reload' }]);
+    });
+
+    it('still full-reloads on a matching .html change even if the module was never loaded into the graph', () => {
+      const plugin = htlPlugin();
+      const server = makeServer();
+
+      plugin.configureServer(server);
+      server.fireChange(cardHtml);
+
+      expect(server.invalidated).toEqual([]);
+      expect(server.wsMessages).toEqual([{ type: 'full-reload' }]);
+    });
+
+    it('reacts to .html changes even when no i18n path is configured (previously configureServer bailed out entirely)', () => {
+      const plugin = htlPlugin();
+      const server = makeServer();
+
+      plugin.configureServer(server);
+      server.fireChange(cardHtml);
+
+      expect(server.wsMessages).toEqual([{ type: 'full-reload' }]);
+    });
+
+    it('ignores changes to files excluded from transformation', () => {
+      const plugin = htlPlugin({ exclude: /\.stories\.html$/ });
+      const storyHtml = path.join(
+        tmpDir,
+        'apps',
+        'mysite',
+        'card',
+        'card.stories.html'
+      );
+      fs.writeFileSync(storyHtml, '<div></div>');
+      const server = makeServer();
+
+      plugin.configureServer(server);
+      server.fireChange(storyHtml);
+
+      expect(server.wsMessages).toEqual([]);
+      expect(server.invalidated).toEqual([]);
+    });
+
+    it('ignores changes to non-.html files', () => {
+      const plugin = htlPlugin();
+      const server = makeServer();
+
+      plugin.configureServer(server);
+      server.fireChange(
+        path.join(tmpDir, 'apps', 'mysite', 'card', 'card.js')
+      );
+
+      expect(server.wsMessages).toEqual([]);
+    });
+
+    it('full-reloads without touching the module graph when the i18n file changes', () => {
+      const i18nPath = path.join(tmpDir, 'i18n.xml');
+      fs.writeFileSync(i18nPath, '<xml/>');
+      const plugin = htlPlugin({ i18nPath });
+      const server = makeServer();
+
+      plugin.configureServer(server);
+      server.fireChange(i18nPath);
+
+      expect(server.wsMessages).toEqual([{ type: 'full-reload' }]);
+      expect(server.invalidated).toEqual([]);
+    });
+
+    it('adds string include directories to the file watcher', () => {
+      const includeDir = path.join(tmpDir, 'apps', 'mysite');
+      const plugin = htlPlugin({ include: includeDir });
+      const server = makeServer();
+
+      plugin.configureServer(server);
+
+      expect(server.watcherAdds).toContainEqual([includeDir]);
+    });
+
+    it('does not add non-string include patterns (e.g. RegExp) to the watcher', () => {
+      const plugin = htlPlugin({ include: /\.html$/ });
+      const server = makeServer();
+
+      plugin.configureServer(server);
+
+      expect(server.watcherAdds).toEqual([]);
+    });
+  });
+
   describe('config() — esbuild dependency-optimizer scan stub', () => {
     function setupStub(plugin: ReturnType<typeof htlPlugin>) {
       const config = (plugin as any).config();

@@ -190,9 +190,10 @@ export function htlPlugin(options: HtlVitePluginOptions = {}) {
       }
     },
 
-    // Dev-server-only: i18n files aren't part of the module graph, so a
-    // plain addWatchFile won't trigger HMR for them while `vite dev` is
-    // running — reload manually when they change.
+    // Dev-server-only: neither i18n files nor the .html sources themselves are
+    // real entries in the module graph (they're read via fs inside load(), not
+    // resolved/imported normally), so addWatchFile alone won't trigger HMR for
+    // them while `vite dev` is running. Watch them and invalidate manually.
     configureServer(server: any) {
       const includeDirs = (
         Array.isArray(include) ? include : include ? [include] : []
